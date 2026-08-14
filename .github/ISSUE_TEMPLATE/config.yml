@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/upscaler-io/upscaler-cli/security/policy
+    about: Do not open a public issue. Email support@upscaler.io instead.
+  - name: Agent skills
+    url: https://github.com/upscaler-io/upscaler-skills
+    about: Issues about the Upscaler agent skills belong in that repository.
+  - name: Upscaler product support
+    url: mailto:support@upscaler.io
+    about: Questions about the Upscaler platform itself, billing, or your account.

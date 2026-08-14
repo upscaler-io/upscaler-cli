@@ -1,0 +1,46 @@
+name: Bug report
+description: Something in the CLI behaves incorrectly
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please do not paste access tokens, `~/.upscaler/` contents, or any
+        response body containing customer data. Redact before posting.
+  - type: input
+    id: version
+    attributes:
+      label: CLI version
+      description: Output of `upscaler --version`
+      placeholder: "upscaler 0.3.0"
+    validations:
+      required: true
+  - type: input
+    id: python
+    attributes:
+      label: Python version
+      placeholder: "3.12.4"
+    validations:
+      required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: Command
+      description: The exact command you ran, with secrets redacted.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: What happened instead
+      description: Include the error output. `--verbose` adds request metadata.
+      render: shell
+    validations:
+      required: true

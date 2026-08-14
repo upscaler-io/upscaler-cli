@@ -1,0 +1,33 @@
+name: Feature request
+description: Propose a new command, flag, or output format
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: Describe the task, not the solution. What are you doing today instead?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed command
+      description: Sketch the invocation and the output you would expect.
+      render: shell
+    validations:
+      required: true
+  - type: dropdown
+    id: audience
+    attributes:
+      label: Who is this for?
+      options:
+        - A human at a terminal
+        - An AI agent driving the CLI
+        - Both
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
