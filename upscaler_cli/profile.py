@@ -73,12 +73,13 @@ def get_saved_default() -> Optional[str]:
 
 def save_default_profile(name: str) -> Path:
     """Persist `name` as the saved default profile; return the file path."""
+    from upscaler_cli.security import ensure_private_dir, write_private_text
+
     validate_profile(name)
     home = upscaler_home()
-    home.mkdir(mode=0o700, exist_ok=True)
+    ensure_private_dir(home)
     path = home / DEFAULT_PROFILE_FILE
-    path.write_text(name + "\n")
-    path.chmod(0o600)
+    write_private_text(path, name + "\n")
     return path
 
 
@@ -126,11 +127,18 @@ def ensure_profile_dir(config_dir: Path) -> None:
     0o755) on intermediate dirs. Token + config files are 0o600, but the
     enclosing profiles/ dir leaking the list of profile names is still a
     confidentiality regression vs. the pre-profile single-dir layout.
+
+    The mode is re-asserted on every call, not just at creation: mkdir(mode=...,
+    exist_ok=True) silently leaves an existing directory as it found it, so a
+    tree left group- or world-readable by an older version, a backup restore, or
+    a stray chmod would otherwise keep that mode indefinitely — and the 0600
+    files inside are only unreachable to other local users because of these bits.
     """
-    home = upscaler_home()
-    home.mkdir(mode=0o700, exist_ok=True)
-    profiles_root().mkdir(mode=0o700, exist_ok=True)
-    config_dir.mkdir(mode=0o700, exist_ok=True)
+    from upscaler_cli.security import ensure_private_dir
+
+    ensure_private_dir(upscaler_home())
+    ensure_private_dir(profiles_root())
+    ensure_private_dir(config_dir)
 
 
 def migrate_legacy_root() -> bool:

@@ -16,6 +16,7 @@ from typing import Optional
 
 from upscaler_cli.auth.encryption import decrypt, derive_key, encrypt
 from upscaler_cli.profile import ensure_profile_dir, get_profile_dir
+from upscaler_cli.security import write_private_bytes
 
 
 @dataclass
@@ -77,8 +78,9 @@ class TokenStore:
         token_path = self.config_dir / self.TOKEN_FILE
         tmp_path = self.config_dir / f"{self.TOKEN_FILE}.tmp"
 
-        tmp_path.write_bytes(ciphertext)
-        os.chmod(tmp_path, 0o600)
+        # 0600 from creation: a write-then-chmod would leave the ciphertext
+        # readable per the ambient umask for the window between the two calls.
+        write_private_bytes(tmp_path, ciphertext)
         tmp_path.rename(token_path)
 
     def load(self) -> TokenData:
@@ -124,7 +126,7 @@ class TokenStore:
         if salt_path.exists():
             return salt_path.read_bytes()
 
+        ensure_profile_dir(self.config_dir)
         salt = os.urandom(self.SALT_SIZE)
-        salt_path.write_bytes(salt)
-        os.chmod(salt_path, 0o600)
+        write_private_bytes(salt_path, salt)
         return salt
