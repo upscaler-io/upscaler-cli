@@ -229,9 +229,13 @@ class TestTokenStoreOnDisk:
         import stat
 
         monkeypatch.setenv("UPSCALER_HOME", str(tmp_path / "home"))
-        os.umask(0o022)
-        store = TokenStore(profile="prod")
-        store.save(_token())
+        # umask is process-global; restore it so test order stays irrelevant.
+        previous_umask = os.umask(0o022)
+        try:
+            store = TokenStore(profile="prod")
+            store.save(_token())
+        finally:
+            os.umask(previous_umask)
 
         for name in (".salt", "tokens.enc"):
             path = store.config_dir / name

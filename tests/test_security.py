@@ -92,10 +92,23 @@ class TestIdValidation:
             validate_id(value)
 
 
+@pytest.fixture
+def permissive_umask():
+    """Run the test under umask 0o022 — the value that used to leak through
+    write-then-chmod — and restore the caller's umask afterwards.
+
+    umask is process-global, so leaving it modified would make unrelated tests
+    order-dependent.
+    """
+    previous = os.umask(0o022)
+    try:
+        yield
+    finally:
+        os.umask(previous)
+
+
 class TestPrivateFileWrites:
-    def test_file_is_never_wider_than_0600(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(os, "umask", os.umask)
-        os.umask(0o022)  # the mode that used to leak through write-then-chmod
+    def test_file_is_never_wider_than_0600(self, tmp_path, permissive_umask):
         target = tmp_path / "secret.bin"
         write_private_bytes(target, b"token")
         mode = stat.S_IMODE(target.stat().st_mode)
