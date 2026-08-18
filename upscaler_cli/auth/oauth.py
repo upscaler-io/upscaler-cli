@@ -491,17 +491,32 @@ class OAuthFlow:
         )
 
     async def revoke(self, token_data: TokenData) -> None:
-        """Revoke tokens (best-effort — does not raise on failure)."""
+        """Revoke tokens (best-effort — does not raise on failure).
+
+        Revokes the refresh token as well as the access token. RFC 7009 leaves
+        it to the server whether revoking an access token cascades to the
+        refresh token it came from, so revoking only the access token can end
+        `upscaler logout` with a refresh token that is still redeemable for
+        hours or days. Each token is sent with its `token_type_hint` so the
+        server can look it up in the right table.
+        """
         url = f"{self.oauth_base}/revoke"
-        payload = {
-            "token": token_data.access_token,
-            "client_id": token_data.client_id,
-            "client_secret": token_data.client_secret,
-        }
+        targets = [("access_token", token_data.access_token)]
+        if token_data.refresh_token:
+            targets.append(("refresh_token", token_data.refresh_token))
 
         try:
             async with httpx.AsyncClient(timeout=5.0, verify=self.verify_ssl) as client:
-                await client.post(url, data=payload)
+                for hint, token in targets:
+                    await client.post(
+                        url,
+                        data={
+                            "token": token,
+                            "token_type_hint": hint,
+                            "client_id": token_data.client_id,
+                            "client_secret": token_data.client_secret,
+                        },
+                    )
         except Exception as e:
             logger.debug(f"Token revocation failed (best-effort): {e}")
 

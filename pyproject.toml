@@ -28,8 +28,12 @@ classifiers = [
 ]
 dependencies = [
     "click>=8.0",
-    "httpx>=0.25,<1",
-    "cryptography>=41.0",
+    "httpx>=0.27,<1",
+    # 42.0.4 is the first release clear of the NULL-dereference and
+    # Bleichenbacher advisories affecting the 41.x line this floor used to
+    # allow; a resolver on an old lockfile could otherwise satisfy the
+    # requirement with a vulnerable build.
+    "cryptography>=42.0.4",
 ]
 
 [project.optional-dependencies]

@@ -7,6 +7,7 @@ which composes presign + multipart upload + values mutation.
 """
 
 import asyncio
+import os
 import sys
 from pathlib import Path
 
@@ -158,7 +159,10 @@ def files_download(ctx, key, name, bucket, output, to_stdout, force):
         handle_error(ctx, CLIError("Provide exactly one of --output PATH or --stdout."))
         return
 
-    if output and Path(output).exists() and not force:
+    # `exists()` resolves symlinks, so a *dangling* link at --output reports
+    # False and the later open() would follow it and write the file's bytes to
+    # wherever it points. Check for the link itself, not just its target.
+    if output and (Path(output).exists() or Path(output).is_symlink()) and not force:
         handle_error(
             ctx, CLIError(f"Refusing to overwrite existing file: {output} (use --force).")
         )
@@ -185,7 +189,10 @@ def files_download(ctx, key, name, bucket, output, to_stdout, force):
                     total += len(chunk)
                 sys.stdout.buffer.flush()
             else:
-                with open(output, "wb") as fh:
+                # Evidence files carry compliance data; create them 0600 rather
+                # than at the ambient umask (typically 0644, world-readable).
+                fd = os.open(output, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+                with os.fdopen(fd, "wb") as fh:
                     for chunk in resp.iter_bytes(_DOWNLOAD_CHUNK):
                         fh.write(chunk)
                         total += len(chunk)

@@ -37,6 +37,16 @@ For a self-hosted or staging server with self-signed certificates:
 upscaler config set verify_ssl false
 ```
 
+This disables certificate and hostname verification entirely rather than
+relaxing it, so the connection is no longer protected against interception —
+the CLI warns on stderr while it is in effect. Use it against development
+servers only, never against one holding real data.
+
+Each profile's credentials are bound to the server that issued them: the CLI
+refuses to send a stored token to any other origin. To use a different server,
+log in against it, ideally under its own profile
+(`upscaler --profile staging login`).
+
 ## Quick Start
 
 ```bash
@@ -109,6 +119,11 @@ Preview changes before committing:
 upscaler entry create --definition-id rg_123 --data @payload.json --dry-run
 upscaler asset delete --asset-id rg_123 --dry-run
 ```
+
+Delete commands prompt for confirmation only on an interactive terminal. Under
+`--json`, in a pipeline, in CI, or when driven by an agent the prompt is
+skipped so automation does not hang — gate destructive commands yourself in
+those contexts. Deletes are soft: `upscaler recover <id>` restores them.
 
 ## Data Input
 
