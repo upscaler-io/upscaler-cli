@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-08-18
+
 ### Added
 
 - **This CLI is now open source**, MIT-licensed, developed at
@@ -36,7 +38,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Changed
 
 - `upscaler --help` output now includes a footer linking to the agent-skills repository.
-- `upscaler --version` now prints the recommended agent-skills git ref in addition to the CLI version.
+- `upscaler --version` now prints the recommended agent-skills git ref in addition to the CLI version, and that ref is pinned to the skills release `v1.1.0` instead of the floating `main` branch, so a given CLI version names a known-good skills version.
 - **Internal**: the installed Python package is now `upscaler_cli` instead of the
   generic `src`, which previously squatted a very common top-level module name
   and could shadow or be shadowed by unrelated code in the same environment.
@@ -57,3 +59,13 @@ the skills from their own repository instead. In Claude Code:
 
 For Cursor, Gemini CLI, Codex, and ChatGPT, see the install matrix in
 <https://github.com/upscaler-io/upscaler-skills#installation>.
+
+## [0.3.0] - 2026-08-01
+
+Released from the private monorepo, before this repository existed. Recorded retroactively because it contained a breaking change:
+
+### Removed
+
+- **Breaking**: `upscaler entry complete-task` was removed. The platform's agent surface is human-in-the-loop: agents stage task values with `upscaler entry save-draft --task-id <t_*> --note "..."` (added in the same release), and a human reviews and completes the task in the Upscaler app. A script calling `complete-task` now fails locally with `No such command 'complete-task'`; switch it to `save-draft` and report drafts, not completions.
+
+Earlier releases (0.1.0 through 0.2.3) were also published from the private monorepo without a public changelog.
