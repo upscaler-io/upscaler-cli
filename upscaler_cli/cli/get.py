@@ -50,12 +50,37 @@ def _detect_route(resource_id, resource_type):
     return None, None
 
 
+_FORMATS = ("json", "markdown", "schema")
+
+
+def _parse_formats(ctx, param, value):
+    """Accept --format repeated and/or comma-separated.
+
+    The REST API and the MCP tool both take a list of formats, so the CLI should
+    not be the one surface that can only ask for one. Order is the caller's, and
+    duplicates collapse.
+    """
+    names = []
+    for chunk in value or ():
+        for name in chunk.split(","):
+            name = name.strip()
+            if not name:
+                continue
+            if name not in _FORMATS:
+                raise click.BadParameter(
+                    f"{name!r} is not one of {', '.join(repr(f) for f in _FORMATS)}."
+                )
+            if name not in names:
+                names.append(name)
+    return tuple(names)
+
+
 @click.command("get")
 @click.argument("resource_id")
 @click.option(
-    "--format", "fmt", default=None,
-    type=click.Choice(["json", "markdown", "schema"]),
-    help="Output format: json (overview), markdown (content), schema (fields).",
+    "--format", "fmt", multiple=True, callback=_parse_formats,
+    help="Output formats: json (overview), markdown (content), schema (fields). "
+         "Repeatable, and accepts a comma-separated list.",
 )
 @click.option(
     "--type", "resource_type", default=None,
@@ -88,6 +113,7 @@ def get_asset(ctx, resource_id, fmt, resource_type, lane, draft):
     Examples:
         upscaler get rg_abc123
         upscaler get rg_abc123 --format schema
+        upscaler get rg_abc123 --format json,schema
         upscaler get rg_abc123 --lane designer
         upscaler get g_abc123
         upscaler get <uid> --type member
@@ -138,7 +164,7 @@ def _get_asset(ctx, client, asset_id, fmt, format_json, lane=None, draft=False):
     if draft:
         params["draft"] = "true"
     if fmt:
-        params["format"] = fmt
+        params["format"] = ",".join(fmt)
 
     try:
         result = asyncio.run(
@@ -154,20 +180,28 @@ def _get_asset(ctx, client, asset_id, fmt, format_json, lane=None, draft=False):
 
     if ctx.json_mode:
         click.echo(format_json(result, compact=True))
-    elif fmt == "markdown":
-        content = data.get("markdown", data.get("text", ""))
-        if content:
-            click.echo(content)
+        return
+
+    requested = fmt or ("json",)
+    for name in requested:
+        # Only label the sections when there is more than one, so a single
+        # --format markdown still prints the bare body and stays pipeable.
+        if len(requested) > 1:
+            click.echo(f"--- {name} ---")
+        if name == "markdown":
+            content = data.get("markdown", data.get("text", ""))
+            if content:
+                click.echo(content)
+            else:
+                click.echo("No markdown content for this asset type.", err=True)
+        elif name == "schema":
+            schema = data.get("schema", {})
+            if schema:
+                click.echo(format_json(schema))
+            else:
+                click.echo("No schema available for this asset type.", err=True)
         else:
-            click.echo("No markdown content for this asset type.", err=True)
-    elif fmt == "schema":
-        schema = data.get("schema", {})
-        if schema:
-            click.echo(format_json(schema))
-        else:
-            click.echo("No schema available for this asset type.", err=True)
-    else:
-        click.echo(format_json(data))
+            click.echo(format_json(data))
 
 
 def _get_simple(ctx, client, endpoint, format_json):

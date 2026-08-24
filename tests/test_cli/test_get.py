@@ -167,6 +167,49 @@ class TestGetAsset:
             params = mock_request.call_args.kwargs["params"]
             assert params.get("draft") in (True, "true")
 
+    def test_get_accepts_multiple_formats(self, runner):
+        # The REST API and MCP tool both take a list of formats. The CLI used to
+        # be limited to one, so json+schema in a single read was unreachable here.
+        mock_result = {
+            "success": True,
+            "data": {"json": {"asset_id": "rg_1"}, "schema": {"fields": []}},
+        }
+        with (
+            patch("upscaler_cli.config.CLIConfig") as MC,
+            patch("upscaler_cli.auth.token_store.TokenStore"),
+            patch("upscaler_cli.client.UpscalerClient") as MockClient,
+        ):
+            MC.return_value.resolve_server_url.return_value = "https://api.example.com"
+            mock_request = AsyncMock(return_value=mock_result)
+            MockClient.return_value.request = mock_request
+            result = runner.invoke(cli, ["get", "rg_1", "--format", "json,schema"])
+            assert result.exit_code == 0
+            assert mock_request.call_args.kwargs["params"]["format"] == "json,schema"
+
+    def test_get_format_is_repeatable(self, runner):
+        mock_result = {"success": True, "data": {"json": {}, "markdown": "# T"}}
+        with (
+            patch("upscaler_cli.config.CLIConfig") as MC,
+            patch("upscaler_cli.auth.token_store.TokenStore"),
+            patch("upscaler_cli.client.UpscalerClient") as MockClient,
+        ):
+            MC.return_value.resolve_server_url.return_value = "https://api.example.com"
+            mock_request = AsyncMock(return_value=mock_result)
+            MockClient.return_value.request = mock_request
+            result = runner.invoke(
+                cli, ["get", "rg_1", "--format", "json", "--format", "markdown"]
+            )
+            assert result.exit_code == 0
+            assert mock_request.call_args.kwargs["params"]["format"] == "json,markdown"
+            # Labelled sections, because two bodies in a row are otherwise
+            # indistinguishable. A single format stays unlabelled and pipeable.
+            assert "--- markdown ---" in result.output
+
+    def test_get_rejects_an_unknown_format(self, runner):
+        result = runner.invoke(cli, ["get", "rg_1", "--format", "yaml"])
+        assert result.exit_code != 0
+        assert "yaml" in result.output
+
     def test_get_without_draft_omits_param(self, runner):
         mock_result = {"success": True, "data": {"schema": []}}
         with (
