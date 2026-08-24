@@ -25,6 +25,11 @@ make lint             # flake8 + isort --check-only
 make format           # black + isort
 ```
 
+The virtualenv is not optional: `make install` refuses to run outside one, so
+the package and the dev tools cannot land in your ambient interpreter by
+accident. In an environment that is already isolated (a CI runner, a container)
+bypass the check with `SKIP_VENV_CHECK=1 make install`.
+
 Point the CLI at a non-production server without editing any source:
 
 ```bash

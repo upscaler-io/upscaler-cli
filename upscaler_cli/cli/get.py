@@ -63,21 +63,32 @@ def _detect_route(resource_id, resource_type):
     help="Resource type (for IDs without a known prefix, e.g. member).",
 )
 @click.option(
+    "--lane", default=None,
+    type=click.Choice(["designer", "published"]),
+    help="Which copy to read: published (default) or designer. Definition assets "
+         "exist in both lanes under one id. Use designer when the result feeds an "
+         "edit back, since content writes target the designer copy.",
+)
+@click.option(
     "--draft", is_flag=True, default=False,
-    help="Read the unpublished working copy instead of the published version "
-         "(record definitions: shows edits not yet released).",
+    help="DEPRECATED, use --lane designer. Read the unpublished working copy "
+         "instead of the published version.",
 )
 @pass_context
-def get_asset(ctx, resource_id, fmt, resource_type, draft):
+def get_asset(ctx, resource_id, fmt, resource_type, lane, draft):
     """Retrieve an asset, member, or group by ID.
 
     Asset and group IDs are auto-detected by prefix (rg_, d_, g_, etc.).
     For members, use --type member since member IDs have no prefix.
 
+    Definition assets exist in two lanes sharing one id: the designer working
+    copy and the published snapshot. Reads default to published; the response
+    echoes which lane answered.
+
     Examples:
         upscaler get rg_abc123
         upscaler get rg_abc123 --format schema
-        upscaler get rd_abc123 --format schema --draft
+        upscaler get rg_abc123 --lane designer
         upscaler get g_abc123
         upscaler get <uid> --type member
         upscaler --json get <uid> --type member
@@ -112,14 +123,18 @@ def get_asset(ctx, resource_id, fmt, resource_type, draft):
         return
 
     if is_asset:
-        _get_asset(ctx, client, resource_id, fmt, format_json, draft=draft)
+        _get_asset(ctx, client, resource_id, fmt, format_json, lane=lane, draft=draft)
     else:
         _get_simple(ctx, client, f"{endpoint}/{resource_id}", format_json)
 
 
-def _get_asset(ctx, client, asset_id, fmt, format_json, draft=False):
+def _get_asset(ctx, client, asset_id, fmt, format_json, lane=None, draft=False):
     """Fetch and display an asset with format control."""
     params = {}
+    # Only send a selector the caller actually set, so the server applies its own
+    # default rather than this client hard-coding one.
+    if lane:
+        params["lane"] = lane
     if draft:
         params["draft"] = "true"
     if fmt:
