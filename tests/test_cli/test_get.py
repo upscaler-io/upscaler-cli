@@ -3,14 +3,8 @@ import json
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from click.testing import CliRunner
 
 from upscaler_cli.cli.main import cli
-
-
-@pytest.fixture
-def runner():
-    return CliRunner()
 
 
 @pytest.fixture
@@ -167,40 +161,26 @@ class TestGetAsset:
             params = mock_request.call_args.kwargs["params"]
             assert params.get("draft") in (True, "true")
 
-    def test_get_accepts_multiple_formats(self, runner):
+    def test_get_accepts_multiple_formats(self, runner, mock_request):
         # The REST API and MCP tool both take a list of formats. The CLI used to
         # be limited to one, so json+schema in a single read was unreachable here.
         mock_result = {
             "success": True,
             "data": {"json": {"asset_id": "rg_1"}, "schema": {"fields": []}},
         }
-        with (
-            patch("upscaler_cli.config.CLIConfig") as MC,
-            patch("upscaler_cli.auth.token_store.TokenStore"),
-            patch("upscaler_cli.client.UpscalerClient") as MockClient,
-        ):
-            MC.return_value.resolve_server_url.return_value = "https://api.example.com"
-            mock_request = AsyncMock(return_value=mock_result)
-            MockClient.return_value.request = mock_request
+        with mock_request(mock_result) as request:
             result = runner.invoke(cli, ["get", "rg_1", "--format", "json,schema"])
             assert result.exit_code == 0
-            assert mock_request.call_args.kwargs["params"]["format"] == "json,schema"
+            assert request.call_args.kwargs["params"]["format"] == "json,schema"
 
-    def test_get_format_is_repeatable(self, runner):
+    def test_get_format_is_repeatable(self, runner, mock_request):
         mock_result = {"success": True, "data": {"json": {}, "markdown": "# T"}}
-        with (
-            patch("upscaler_cli.config.CLIConfig") as MC,
-            patch("upscaler_cli.auth.token_store.TokenStore"),
-            patch("upscaler_cli.client.UpscalerClient") as MockClient,
-        ):
-            MC.return_value.resolve_server_url.return_value = "https://api.example.com"
-            mock_request = AsyncMock(return_value=mock_result)
-            MockClient.return_value.request = mock_request
+        with mock_request(mock_result) as request:
             result = runner.invoke(
                 cli, ["get", "rg_1", "--format", "json", "--format", "markdown"]
             )
             assert result.exit_code == 0
-            assert mock_request.call_args.kwargs["params"]["format"] == "json,markdown"
+            assert request.call_args.kwargs["params"]["format"] == "json,markdown"
             # Labelled sections, because two bodies in a row are otherwise
             # indistinguishable. A single format stays unlabelled and pipeable.
             assert "--- markdown ---" in result.output
@@ -210,34 +190,20 @@ class TestGetAsset:
         assert result.exit_code != 0
         assert "yaml" in result.output
 
-    def test_get_lane_passes_param(self, runner):
+    def test_get_lane_passes_param(self, runner, mock_request):
         mock_result = {"success": True, "data": {"json": {"lane": "designer"}}}
-        with (
-            patch("upscaler_cli.config.CLIConfig") as MC,
-            patch("upscaler_cli.auth.token_store.TokenStore"),
-            patch("upscaler_cli.client.UpscalerClient") as MockClient,
-        ):
-            MC.return_value.resolve_server_url.return_value = "https://api.example.com"
-            mock_request = AsyncMock(return_value=mock_result)
-            MockClient.return_value.request = mock_request
+        with mock_request(mock_result) as request:
             result = runner.invoke(cli, ["--json", "get", "rg_1", "--lane", "designer"])
             assert result.exit_code == 0
-            assert mock_request.call_args.kwargs["params"]["lane"] == "designer"
+            assert request.call_args.kwargs["params"]["lane"] == "designer"
 
-    def test_get_without_lane_omits_param(self, runner):
+    def test_get_without_lane_omits_param(self, runner, mock_request):
         # The server owns the default; the client must not hard-code one.
         mock_result = {"success": True, "data": {"json": {}}}
-        with (
-            patch("upscaler_cli.config.CLIConfig") as MC,
-            patch("upscaler_cli.auth.token_store.TokenStore"),
-            patch("upscaler_cli.client.UpscalerClient") as MockClient,
-        ):
-            MC.return_value.resolve_server_url.return_value = "https://api.example.com"
-            mock_request = AsyncMock(return_value=mock_result)
-            MockClient.return_value.request = mock_request
+        with mock_request(mock_result) as request:
             result = runner.invoke(cli, ["--json", "get", "rg_1"])
             assert result.exit_code == 0
-            assert "lane" not in mock_request.call_args.kwargs["params"]
+            assert "lane" not in request.call_args.kwargs["params"]
 
     def test_get_rejects_lane_and_draft_together(self, runner):
         # The server gives draft precedence, so `--lane published --draft` would
@@ -274,7 +240,7 @@ class TestGetAsset:
             result = runner.invoke(cli, ["get", "bad_id"])
             assert result.exit_code != 0
 
-    def test_get_todo_surfaces_bookmark(self, runner):
+    def test_get_todo_surfaces_bookmark(self, runner, mock_request):
         # Todos are assets: `get to_…` goes to /api/v1/assets like every other
         # prefix, so the payload arrives under data.json rather than bare. A
         # bookmark stored at extra.bookmarkUrl must survive that move and reach
@@ -288,52 +254,31 @@ class TestGetAsset:
                 }
             },
         }
-        with (
-            patch("upscaler_cli.config.CLIConfig") as MC,
-            patch("upscaler_cli.auth.token_store.TokenStore"),
-            patch("upscaler_cli.client.UpscalerClient") as MockClient,
-        ):
-            MC.return_value.resolve_server_url.return_value = "https://api.example.com"
-            mock_request = AsyncMock(return_value=mock_result)
-            MockClient.return_value.request = mock_request
+        with mock_request(mock_result) as request:
             json_result = runner.invoke(cli, ["--json", "get", "to_abc123"])
             assert json_result.exit_code == 0
-            assert mock_request.call_args.args[1] == "/api/v1/assets/to_abc123"
+            assert request.call_args.args[1] == "/api/v1/assets/to_abc123"
             data = json.loads(json_result.output)
             assert data["data"]["json"]["extra"]["bookmarkUrl"] == "/document/d_1"
             human_result = runner.invoke(cli, ["get", "to_abc123"])
             assert human_result.exit_code == 0
             assert "/document/d_1" in human_result.output
 
-    def test_get_todo_honours_format(self, runner):
+    def test_get_todo_honours_format(self, runner, mock_request):
         # The old /api/v1/todos route ignored --format entirely, so `get to_…
         # --format markdown` silently returned a bare todo object instead.
         mock_result = {"success": True, "data": {"markdown": "# Review"}}
-        with (
-            patch("upscaler_cli.config.CLIConfig") as MC,
-            patch("upscaler_cli.auth.token_store.TokenStore"),
-            patch("upscaler_cli.client.UpscalerClient") as MockClient,
-        ):
-            MC.return_value.resolve_server_url.return_value = "https://api.example.com"
-            mock_request = AsyncMock(return_value=mock_result)
-            MockClient.return_value.request = mock_request
+        with mock_request(mock_result) as request:
             result = runner.invoke(cli, ["get", "to_abc123", "--format", "markdown"])
             assert result.exit_code == 0
-            assert mock_request.call_args.kwargs["params"]["format"] == "markdown"
+            assert request.call_args.kwargs["params"]["format"] == "markdown"
             assert "# Review" in result.output
 
-    def test_get_todo_by_explicit_type_still_uses_the_todo_route(self, runner):
+    def test_get_todo_by_explicit_type_still_uses_the_todo_route(self, runner, mock_request):
         # --type todo is deprecated but must keep working for one release: the
         # bare-object endpoint is a public surface some scripts still read.
         mock_result = {"success": True, "data": {"id": "to_abc123"}}
-        with (
-            patch("upscaler_cli.config.CLIConfig") as MC,
-            patch("upscaler_cli.auth.token_store.TokenStore"),
-            patch("upscaler_cli.client.UpscalerClient") as MockClient,
-        ):
-            MC.return_value.resolve_server_url.return_value = "https://api.example.com"
-            mock_request = AsyncMock(return_value=mock_result)
-            MockClient.return_value.request = mock_request
+        with mock_request(mock_result) as request:
             result = runner.invoke(cli, ["--json", "get", "to_abc123", "--type", "todo"])
             assert result.exit_code == 0
-            assert mock_request.call_args.args[1] == "/api/v1/todos/to_abc123"
+            assert request.call_args.args[1] == "/api/v1/todos/to_abc123"

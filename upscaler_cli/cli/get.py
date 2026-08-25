@@ -18,6 +18,8 @@ _PREFIX_ROUTES = {
 # Known asset prefixes (routed to /api/v1/assets). Mirrors _detect_asset_type's
 # prefix_map in up-ai/src/tools/native/_helpers.py; keep the two in step.
 # `to_` sits here, not in _PREFIX_ROUTES: todos are assets and share the shape.
+# `bd_` is absent on purpose, even though recover.py handles it: the server has
+# no board entry in prefix_map, so routing one here would only move the failure.
 _ASSET_PREFIXES = ("d_", "doc_", "rg_", "rd_", "r_", "rec_", "i_", "cd_", "to_")
 
 # Explicit --type → endpoint, for ids whose prefix cannot identify them.
