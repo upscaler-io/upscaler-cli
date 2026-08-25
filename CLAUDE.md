@@ -119,9 +119,10 @@ Two shapes exist:
   which handles dry-run, the client call, error routing, and rendering in one place.
 - **Direct-endpoint commands** (`get`, `list`, `entry`, `asset`, `files`, `comment`,
   `recover`) build their own request. `get.py` shows the routing convention: resource ids
-  are prefix-routed (`to_` todo, `g_` group, `t_` task, and `d_`/`rg_`/`rd_`/`r_`/`i_`/`cd_`
-  to `/api/v1/assets`), with `--type` as the explicit escape hatch for ids that have no
-  prefix, such as member uids. Longer prefixes must be ordered before shorter ones.
+  are prefix-routed (`g_` group, `t_` task, and `d_`/`rg_`/`rd_`/`r_`/`i_`/`cd_`/`to_` to
+  `/api/v1/assets`), with `--type` as the explicit escape hatch for ids that have no
+  prefix, such as member uids. No prefix may be a prefix of another; if that ever changes,
+  order the longer one first.
 
 Definition assets exist in two lanes under one id: the `designer` working copy and the
 `published` snapshot. Reads default to published. `--lane designer` is what you want when
@@ -161,6 +162,12 @@ fails silently (the server accepts the request and drops the data):
 - `helpers.validate_entry_data` rejects top-level `ff_*` keys for the same reason: the
   `/entries` endpoint reads form values only from `data.values`, and a bare payload returns
   a successful-looking response with the values dropped.
+- `get._ASSET_PREFIXES` mirrors `_detect_asset_type`'s `prefix_map` in up-ai's
+  `tools/native/_helpers.py`. A prefix the server knows but the CLI does not is rejected
+  locally with unhelpful advice, so the id becomes unreadable until a CLI release ships.
+- `get._FORMATS` mirrors the format names `get_asset` branches on in up-ai's
+  `document_tools.py`. The server does not reject an unknown format; it returns an empty
+  data object, so this list is the only thing that turns a typo into an error.
 
 When you change one of these, change the comment naming the backend file too.
 

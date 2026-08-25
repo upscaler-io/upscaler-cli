@@ -6,6 +6,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- `get --lane designer|published` selects which copy of a definition asset to read.
+  Definition-backed assets exist twice under one id: a designer working copy and a
+  published snapshot. Reads still default to published, and the response echoes
+  `json.lane` so the answer always names the copy it came from. Use `designer`
+  whenever the result feeds an edit back, since content writes target that copy.
+- `get --format` now accepts several formats at once, either repeated
+  (`--format json --format markdown`) or comma-separated (`--format json,schema`).
+  Sections are labelled only when more than one is requested, so a single
+  `--format markdown` still prints the bare body and stays pipeable.
+- `get i_… --format markdown` renders register items, which previously returned
+  nothing.
+
+### Changed
+
+- **Breaking:** `get to_…` routes to `/api/v1/assets` like every other asset prefix,
+  so it returns the standard envelope with the todo under `data.json` instead of a
+  bare object, and it honours `--format` and `--lane`. Scripts reading `data.id`
+  should read `data.json.id`. `--type todo` still reaches the old endpoint and the
+  old shape for one release.
+
+### Deprecated
+
+- `get --draft`, in favour of `--lane designer`. Passing both is now an error rather
+  than silently answering with the designer copy.
+
 ## [0.4.0] - 2026-08-18
 
 ### Added

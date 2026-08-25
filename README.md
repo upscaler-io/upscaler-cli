@@ -49,7 +49,9 @@ upscaler search "safety procedures"
 # Get an asset
 upscaler get rg_abc123
 upscaler get rg_abc123 --format schema
-upscaler get rg_abc123 --format markdown
+upscaler get rg_abc123 --format json,markdown
+# Read the unpublished working copy, which is what an edit must be based on
+upscaler get rg_abc123 --lane designer
 
 # List data
 upscaler list definitions

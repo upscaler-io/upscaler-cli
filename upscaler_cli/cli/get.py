@@ -9,21 +9,24 @@ from upscaler_cli.cli.context import pass_context
 from upscaler_cli.cli.helpers import handle_error, raise_on_envelope_error
 
 # Prefix → (type, endpoint)
-# NOTE: longer prefixes must come before shorter ones (e.g. "to_" before "t_")
+# No prefix here may be a prefix of another; if that changes, order longer first.
 _PREFIX_ROUTES = {
-    "to_": ("todo", "/api/v1/todos"),
     "g_": ("group", "/api/v1/groups"),
     "t_": ("task", "/api/v1/tasks"),
 }
 
-# Known asset prefixes (routed to /api/v1/assets)
-_ASSET_PREFIXES = ("d_", "doc_", "rg_", "rd_", "r_", "rec_", "i_", "cd_")
+# Known asset prefixes (routed to /api/v1/assets). Mirrors _detect_asset_type's
+# prefix_map in up-ai/src/tools/native/_helpers.py; keep the two in step.
+# `to_` sits here, not in _PREFIX_ROUTES: todos are assets and share the shape.
+_ASSET_PREFIXES = ("d_", "doc_", "rg_", "rd_", "r_", "rec_", "i_", "cd_", "to_")
 
-# Explicit --type → endpoint
+# Explicit --type → endpoint, for ids whose prefix cannot identify them.
 _TYPE_ROUTES = {
     "member": "/api/v1/members",
     "group": "/api/v1/groups",
     "task": "/api/v1/tasks",
+    # DEPRECATED: `to_` ids now route to /api/v1/assets, which honours --format
+    # and --lane. This bare-object endpoint stays one release for scripts.
     "todo": "/api/v1/todos",
 }
 
@@ -54,25 +57,18 @@ _FORMATS = ("json", "markdown", "schema")
 
 
 def _parse_formats(ctx, param, value):
-    """Accept --format repeated and/or comma-separated.
+    """Accept --format repeated and/or comma-separated; duplicates collapse.
 
-    The REST API and the MCP tool both take a list of formats, so the CLI should
-    not be the one surface that can only ask for one. Order is the caller's, and
-    duplicates collapse.
+    Validated here rather than by click.Choice because type conversion runs
+    before the callback, so "json,schema" would be rejected before the split.
+    The server does not reject unknown format names (it returns an empty data
+    object), so this is the only place a typo fails loudly.
     """
-    names = []
-    for chunk in value or ():
-        for name in chunk.split(","):
-            name = name.strip()
-            if not name:
-                continue
-            if name not in _FORMATS:
-                raise click.BadParameter(
-                    f"{name!r} is not one of {', '.join(repr(f) for f in _FORMATS)}."
-                )
-            if name not in names:
-                names.append(name)
-    return tuple(names)
+    names = [n.strip() for chunk in value for n in chunk.split(",") if n.strip()]
+    for name in names:
+        if name not in _FORMATS:
+            raise click.BadParameter(f"{name!r} is not one of {', '.join(_FORMATS)}.")
+    return tuple(dict.fromkeys(names))
 
 
 @click.command("get")
@@ -121,6 +117,14 @@ def get_asset(ctx, resource_id, fmt, resource_type, lane, draft):
     """
     from upscaler_cli.cli.helpers import make_client
     from upscaler_cli.formatters.json_fmt import format_json
+
+    if lane and draft:
+        # The server gives `draft` precedence, so `--lane published --draft`
+        # would quietly answer with the designer copy. Fail rather than
+        # contradict what was asked for.
+        raise click.UsageError(
+            "--draft is the deprecated spelling of --lane designer; pass one, not both."
+        )
 
     client = make_client(ctx)
 
@@ -183,25 +187,27 @@ def _get_asset(ctx, client, asset_id, fmt, format_json, lane=None, draft=False):
         return
 
     requested = fmt or ("json",)
+    # Label sections only when there is more than one, so a single
+    # --format markdown still prints the bare body and stays pipeable.
+    label = len(requested) > 1
     for name in requested:
-        # Only label the sections when there is more than one, so a single
-        # --format markdown still prints the bare body and stays pipeable.
-        if len(requested) > 1:
-            click.echo(f"--- {name} ---")
         if name == "markdown":
-            content = data.get("markdown", data.get("text", ""))
-            if content:
-                click.echo(content)
-            else:
-                click.echo("No markdown content for this asset type.", err=True)
+            body = data.get("markdown", data.get("text", ""))
+            missing = "No markdown content for this asset type."
         elif name == "schema":
             schema = data.get("schema", {})
-            if schema:
-                click.echo(format_json(schema))
-            else:
-                click.echo("No schema available for this asset type.", err=True)
+            body = format_json(schema) if schema else ""
+            missing = "No schema available for this asset type."
         else:
-            click.echo(format_json(data))
+            # The json section, not the whole envelope: with several formats the
+            # envelope carries the other sections too and would print them twice.
+            body = format_json(data.get("json", data))
+            missing = "No json representation for this asset type."
+        # Header follows its body's stream, so a piped stdout never collects a
+        # section label with nothing under it.
+        if label:
+            click.echo(f"--- {name} ---", err=not body)
+        click.echo(body or missing, err=not body)
 
 
 def _get_simple(ctx, client, endpoint, format_json):
