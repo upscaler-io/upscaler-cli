@@ -147,6 +147,27 @@ class TestTodoCreate:
         assert result.exit_code == 0
         assert "/document/d_1" in result.output
 
+    def test_create_todo_with_description(self, runner):
+        mock_result = {"success": True, "data": {"id": "todo_5", "title": "Desc"}}
+        with patch("upscaler_cli.config.CLIConfig") as MC, \
+             patch("upscaler_cli.auth.token_store.TokenStore"), \
+             patch("upscaler_cli.client.UpscalerClient") as MockClient:
+            MC.return_value.resolve_server_url.return_value = "https://api.example.com"
+            mock_request = AsyncMock(return_value=mock_result)
+            MockClient.return_value.request = mock_request
+            result = runner.invoke(cli, [
+                "todo", "create", "--title", "Desc", "--description", "Body **text**",
+            ])
+            assert result.exit_code == 0
+            call = mock_request.call_args
+            payload = call.kwargs.get("json") or call[1].get("json")
+            assert payload["data"]["description"] == "Body **text**"
+
+    def test_create_todo_without_description_omits_key(self, runner):
+        result = runner.invoke(cli, ["--json", "todo", "create", "--title", "T", "--dry-run"])
+        assert result.exit_code == 0
+        assert "description" not in json.loads(result.output)["payload"]["data"]
+
     def test_create_todo_bookmark_in_help(self, runner):
         result = runner.invoke(cli, ["todo", "create", "--help"])
         assert result.exit_code == 0
@@ -167,6 +188,13 @@ class TestTodoUpdate:
             ])
             assert result.exit_code == 0
             assert "todo_1" in result.output
+
+    def test_update_todo_with_description(self, runner):
+        result = runner.invoke(cli, [
+            "--json", "todo", "update", "todo_1", "--description", "New body", "--dry-run",
+        ])
+        assert result.exit_code == 0
+        assert json.loads(result.output)["payload"]["data"] == {"description": "New body"}
 
     def test_update_todo_dry_run(self, runner):
         result = runner.invoke(cli, [

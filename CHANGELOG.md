@@ -8,6 +8,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- `todo create --description` and `todo update --description` set the todo body
+  (markdown). The REST payload already accepted `data.description`; the CLI just
+  never exposed it.
 - `get --lane designer|published` selects which copy of a definition asset to read.
   Definition-backed assets exist twice under one id: a designer working copy and a
   published snapshot. Reads still default to published, and the response echoes

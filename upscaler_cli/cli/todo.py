@@ -22,6 +22,7 @@ def todo_group():
 
 @todo_group.command("create")
 @click.option("--title", required=True, help="Todo title.")
+@click.option("--description", default=None, help="Todo description (markdown).")
 @click.option("--assignee", default=None, help="Assignee user ID.")
 @click.option("--due", "due_date", default=None, help="Due date (ISO 8601).")
 @click.option(
@@ -32,9 +33,11 @@ def todo_group():
 )
 @click.option("--dry-run", is_flag=True, help="Preview without creating.")
 @pass_context
-def todo_create(ctx, title, assignee, due_date, bookmark_url, dry_run):
+def todo_create(ctx, title, description, assignee, due_date, bookmark_url, dry_run):
     """Create a new todo."""
     data = {"title": title}
+    if description:
+        data["description"] = description
     if assignee:
         data["assignees"] = [assignee]
     if due_date:
@@ -48,15 +51,18 @@ def todo_create(ctx, title, assignee, due_date, bookmark_url, dry_run):
 @todo_group.command("update")
 @click.argument("todo_id")
 @click.option("--title", default=None, help="New title.")
+@click.option("--description", default=None, help="New description (markdown).")
 @click.option("--assignee", default=None, help="New assignee.")
 @click.option("--due", "due_date", default=None, help="New due date.")
 @click.option("--dry-run", is_flag=True, help="Preview without updating.")
 @pass_context
-def todo_update(ctx, todo_id, title, assignee, due_date, dry_run):
+def todo_update(ctx, todo_id, title, description, assignee, due_date, dry_run):
     """Update an existing todo."""
     data = {}
     if title:
         data["title"] = title
+    if description:
+        data["description"] = description
     if assignee:
         data["assignees"] = [assignee]
     if due_date:
