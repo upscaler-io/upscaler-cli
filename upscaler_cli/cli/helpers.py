@@ -263,12 +263,50 @@ def make_client(ctx):
     config = CLIConfig(profile=profile)
     server_url = config.resolve_server_url(ctx.server_url)
     verify_ssl = config.resolve_verify_ssl()
+    warn_if_insecure_transport(server_url, verify_ssl)
     return UpscalerClient(
         server_url,
         TokenStore(profile=profile),
         verbose=ctx.verbose,
         verify_ssl=verify_ssl,
     )
+
+
+_INSECURE_WARNED = set()
+
+
+def warn_if_insecure_transport(server_url: str, verify_ssl: bool) -> None:
+    """Warn on stderr when the bearer token would travel unprotected.
+
+    Both conditions are opt-in (`config set verify_ssl false`, or an http://
+    server URL) and both are legitimate against a local dev server — but they
+    are silent today, so a config left over from a debugging session keeps
+    shipping the access token in the clear with nothing on screen to say so.
+    Warned once per (url, mode) per process to stay usable in loops; stderr
+    only, so --json stdout stays machine-parseable.
+    """
+    import click
+
+    scheme = (server_url or "").split("://", 1)[0].lower()
+    if scheme == "http":
+        key = ("http", server_url)
+        if key not in _INSECURE_WARNED:
+            _INSECURE_WARNED.add(key)
+            click.echo(
+                f"Warning: {server_url} uses plaintext HTTP — your access token is "
+                "sent unencrypted and is readable by anyone on the network path.",
+                err=True,
+            )
+    elif not verify_ssl:
+        key = ("noverify", server_url)
+        if key not in _INSECURE_WARNED:
+            _INSECURE_WARNED.add(key)
+            click.echo(
+                f"Warning: TLS certificate verification is disabled for {server_url}. "
+                "The connection is not protected against interception. "
+                "Unset with: upscaler config set verify_ssl true",
+                err=True,
+            )
 
 
 def confirm_destructive(operation: str, resource_id: str, json_mode: bool) -> bool:

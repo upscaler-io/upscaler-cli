@@ -97,10 +97,12 @@ class CLIConfig:
         self._save(config)
 
     def _save(self, config: dict) -> None:
-        """Write config to disk."""
+        """Write config to disk (0600 — it records the server this profile trusts)."""
+        from upscaler_cli.security import write_private_text
+
         ensure_profile_dir(self.config_dir)
         config_path = self.config_dir / self.CONFIG_FILE
-        config_path.write_text(json.dumps(config, indent=2))
+        write_private_text(config_path, json.dumps(config, indent=2))
         self._config = config
 
     def resolve_server_url(
