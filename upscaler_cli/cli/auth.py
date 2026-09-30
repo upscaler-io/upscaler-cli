@@ -282,17 +282,16 @@ def _get_pending_path(profile: str | None = None) -> str:
 
 
 def _save_pending_device(data: dict, profile: str | None = None) -> None:
-    """Save pending device code to disk."""
+    """Save pending device code to disk (0600 — the device code is a credential)."""
     import os
     from pathlib import Path
 
     from upscaler_cli.profile import ensure_profile_dir
+    from upscaler_cli.security import write_private_text
 
     path = _get_pending_path(profile)
     ensure_profile_dir(Path(os.path.dirname(path)))
-    with open(path, "w") as f:
-        f.write(json.dumps(data))
-    os.chmod(path, 0o600)
+    write_private_text(Path(path), json.dumps(data))
 
 
 def _load_pending_device(profile: str | None = None) -> dict | None:
@@ -434,6 +433,9 @@ def logout(ctx):
     try:
         token_data = store.load()
     except RuntimeError:
+        # No tokens, but an interrupted device login may still have left a
+        # redeemable device code behind; clear it before reporting.
+        _delete_pending_device(ctx.profile)
         if ctx.json_mode:
             click.echo(json.dumps({"success": True, "message": "Not logged in."}))
         else:
@@ -455,6 +457,9 @@ def logout(ctx):
                 )
 
     store.delete()
+    # A device code left over from an interrupted `login --no-browser` is still
+    # redeemable for tokens until it expires, so logout must clear it too.
+    _delete_pending_device(ctx.profile)
 
     if ctx.json_mode:
         click.echo(json.dumps({"success": True}))
