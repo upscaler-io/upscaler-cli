@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-09-30
+
+### Changed
+
+- `upscaler --version` now points at upscaler-skills `v1.2.0`, the release that documents
+  `get --lane` and comma-separated `get --format`. 0.5.0 shipped still pinned to `v1.1.0`.
+
 ## [0.5.0] - 2026-09-30
 
 ### Added
