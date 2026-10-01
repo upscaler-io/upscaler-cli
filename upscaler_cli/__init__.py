@@ -1,6 +1,6 @@
 """Upscaler CLI: search, retrieve, and manage Upscaler content."""
 
-__version__ = "0.5.1"
+__version__ = "0.6.0"
 
 # Git ref in https://github.com/upscaler-io/upscaler-skills that matches this
 # CLI release. Bump alongside __version__ when cutting a new CLI release.

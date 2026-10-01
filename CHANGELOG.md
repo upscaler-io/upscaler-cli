@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-01
+
 ### Security
 
 Findings from a security audit of the CLI. No evidence any of these were
