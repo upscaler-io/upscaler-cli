@@ -53,6 +53,17 @@ exploited; all are client-side hardening.
   defends against casual disclosure and token reuse on another machine — not
   against a local attacker.
 
+### Fixed
+
+- **An expired token now refreshes even when the server does not answer 401.**
+  Older up-ai servers return HTTP 200 with a `VALIDATION_ERROR` envelope
+  ("Authentication required") for an unresolvable token on `/api/v1`, so the
+  CLI's 401-only auto-refresh never fired and agents saw a retryable
+  validation error. The client now also treats an `AUTHENTICATION_FAILED`
+  envelope, or that legacy envelope, as an auth failure: it refreshes once and
+  retries. When refresh fails, the message now says
+  `Run: upscaler refresh (or upscaler login if refresh fails)`.
+
 ## [0.5.1] - 2026-09-30
 
 ### Changed

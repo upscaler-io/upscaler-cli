@@ -169,8 +169,114 @@ async def test_401_refresh_fails_raises_auth_error():
             side_effect=RuntimeError("refresh failed"),
         ),
     ):
-        with pytest.raises(AuthRequiredError, match="Session expired"):
+        with pytest.raises(AuthRequiredError, match="Run: upscaler refresh"):
             await client.request("GET", "/api/v1/search")
+
+
+# ---- auth-failure envelope triggers refresh ----
+
+
+def _sequenced_client(*responses):
+    mock_http = AsyncMock()
+    mock_http.request.side_effect = list(responses)
+    mock_http.__aenter__ = AsyncMock(return_value=mock_http)
+    mock_http.__aexit__ = AsyncMock(return_value=False)
+    return mock_http
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "status_code, error",
+    [
+        # Older up-ai: HTTP 200 + VALIDATION_ERROR for an expired opaque token
+        (
+            200,
+            {
+                "error_code": "VALIDATION_ERROR",
+                "message": "Authentication required",
+                "retryable": True,
+            },
+        ),
+        (400, {"error_code": "AUTHENTICATION_FAILED", "message": "Token expired"}),
+    ],
+)
+async def test_auth_failure_envelope_triggers_refresh(status_code, error):
+    """An envelope reporting missing auth refreshes the token and retries once."""
+    token_data = _make_token_data()
+    store = _make_token_store(token_data)
+    client = UpscalerClient("https://api.example.com", token_store=store)
+
+    envelope = _make_mock_response(status_code, {"success": False, "data": {}, "error": error})
+    mock_http = _sequenced_client(envelope, _make_mock_response(200, {"ok": True}))
+
+    new_token_data = _make_token_data()
+    new_token_data.access_token = "refreshed_token"
+
+    with (
+        patch("upscaler_cli.client.httpx.AsyncClient", return_value=mock_http),
+        patch.object(
+            client,
+            "_refresh_token",
+            new_callable=AsyncMock,
+            return_value=new_token_data,
+        ) as mock_refresh,
+    ):
+        result = await client.request("GET", "/api/v1/search")
+
+    assert result == {"ok": True}
+    mock_refresh.assert_awaited_once_with(token_data)
+    retry_headers = mock_http.request.call_args.kwargs["headers"]
+    assert retry_headers["Authorization"] == "Bearer refreshed_token"
+
+
+@pytest.mark.asyncio
+async def test_other_validation_error_does_not_refresh():
+    """A VALIDATION_ERROR unrelated to auth is returned as-is, without a refresh."""
+    store = _make_token_store()
+    client = UpscalerClient("https://api.example.com", token_store=store)
+    body = {
+        "success": False,
+        "error": {"error_code": "VALIDATION_ERROR", "message": "No queries provided"},
+    }
+    mock_http = _make_mock_client(_make_mock_response(200, body))
+
+    with (
+        patch("upscaler_cli.client.httpx.AsyncClient", return_value=mock_http),
+        patch.object(client, "_refresh_token", new_callable=AsyncMock) as mock_refresh,
+    ):
+        result = await client.request("GET", "/api/v1/search")
+
+    assert result == body
+    mock_refresh.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_auth_failure_envelope_after_refresh_raises_auth_error():
+    """If the retry still reports missing auth, the user is told to refresh or log in."""
+    store = _make_token_store()
+    client = UpscalerClient("https://api.example.com", token_store=store)
+    envelope = {
+        "success": False,
+        "error": {"error_code": "VALIDATION_ERROR", "message": "Authentication required"},
+    }
+    mock_http = _sequenced_client(
+        _make_mock_response(200, envelope), _make_mock_response(200, envelope)
+    )
+
+    with (
+        patch("upscaler_cli.client.httpx.AsyncClient", return_value=mock_http),
+        patch.object(
+            client,
+            "_refresh_token",
+            new_callable=AsyncMock,
+            return_value=_make_token_data(),
+        ),
+    ):
+        with pytest.raises(AuthRequiredError) as exc_info:
+            await client.request("GET", "/api/v1/search")
+
+    assert exc_info.value.exit_code == 2
+    assert "upscaler refresh" in str(exc_info.value)
 
 
 # ---- not logged in ----
