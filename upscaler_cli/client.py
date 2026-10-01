@@ -1,8 +1,8 @@
-"""HTTP client for Upscaler REST API with auto-refresh on 401.
+"""HTTP client for Upscaler REST API with auto-refresh on auth failure.
 
 Features:
 - Bearer token authentication from TokenStore
-- Auto-refresh on 401 (retry once with new token)
+- Auto-refresh on 401 or an auth-failure envelope (retry once with new token)
 - X-Request-Id header on every request
 - --verbose logging to stderr
 - Config resolution: flag > env > config > default
@@ -24,6 +24,36 @@ from upscaler_cli.security import same_origin, validate_request_path
 logger = logging.getLogger(__name__)
 
 USER_AGENT = f"UpscalerCLI/{__version__}"
+
+SESSION_EXPIRED_MESSAGE = (
+    "Session expired. Run: upscaler refresh (or upscaler login if refresh fails)"
+)
+
+# Older up-ai servers answer an unresolvable bearer token on /api/v1 with
+# HTTP 200 and a VALIDATION_ERROR envelope (tools/native/_helpers.py
+# validate_auth) instead of a 401, so the status code alone misses it.
+_LEGACY_AUTH_MESSAGES = ("Authentication required", "Authentication token required")
+
+
+def _is_auth_failure(response: httpx.Response) -> bool:
+    """True for a 401 or an error envelope that reports missing authentication."""
+    if response.status_code == 401:
+        return True
+    try:
+        err = response.json().get("error")
+    except (ValueError, AttributeError):
+        return False
+    if not isinstance(err, dict):
+        return False
+    code = err.get("error_code")
+    if code == "AUTHENTICATION_FAILED":
+        return True
+    message = err.get("message")
+    return (
+        code == "VALIDATION_ERROR"
+        and isinstance(message, str)
+        and message.startswith(_LEGACY_AUTH_MESSAGES)
+    )
 
 
 def _origin_label(url: str) -> str:
@@ -70,7 +100,7 @@ class UpscalerClient:
         """Make an authenticated HTTP request to the REST API.
 
         Automatically adds Bearer token and X-Request-Id header.
-        On 401, attempts token refresh and retries once.
+        On 401 or an auth-failure envelope, attempts token refresh and retries once.
 
         Args:
             method: HTTP method (GET, POST, etc.).
@@ -99,20 +129,18 @@ class UpscalerClient:
         # First attempt
         response = await self._send(method, url, token_data.access_token, request_id, **kwargs)
 
-        # Auto-refresh on 401
-        if response.status_code == 401:
+        # Auto-refresh on an auth failure, then retry once
+        if _is_auth_failure(response):
             try:
                 token_data = await self._refresh_token(token_data)
             except Exception:
-                raise AuthRequiredError("Session expired. Run: upscaler login")
+                raise AuthRequiredError(SESSION_EXPIRED_MESSAGE)
 
             # Retry with new token
-            response = await self._send(
-                method, url, token_data.access_token, request_id, **kwargs
-            )
+            response = await self._send(method, url, token_data.access_token, request_id, **kwargs)
 
-            if response.status_code == 401:
-                raise AuthRequiredError("Session expired. Run: upscaler login")
+            if _is_auth_failure(response):
+                raise AuthRequiredError(SESSION_EXPIRED_MESSAGE)
 
         # Parse response
         try:
