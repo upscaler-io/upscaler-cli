@@ -230,7 +230,9 @@ def _embed_files(ctx, entry_id, task_id, data, embed_pairs, dry_run):
     from upscaler_cli.uploads import _guess_content_type, build_file_markdown, presign_and_upload
 
     if _is_record_id(entry_id) and not task_id:
-        handle_error(ctx, CLIError("Record --embed requires --task-id (records hold fields on tasks)."))
+        handle_error(
+            ctx, CLIError("Record --embed requires --task-id (records hold fields on tasks).")
+        )
     client = make_client(ctx)
     schema_fields = _fetch_schema_or_die(ctx, client, entry_id, task_id=task_id)
     data = dict(data or {})

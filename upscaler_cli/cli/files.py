@@ -170,7 +170,8 @@ def files_upload(ctx, file_path, asset_id, ref_id, content_type):
 
     markdown = build_file_markdown(item["uid"], item["name"], item["type"])
     if ctx.json_mode:
-        data = {**item, "reference": build_file_ref(item["uid"], item["name"]), "markdown": markdown}
+        reference = build_file_ref(item["uid"], item["name"])
+        data = {**item, "reference": reference, "markdown": markdown}
         click.echo(format_json({"success": True, "data": data}, compact=True))
     else:
         click.echo(markdown)

@@ -380,5 +380,7 @@ async def test_register_client_server_error_names_url_and_status():
     mock_client.__aexit__ = AsyncMock(return_value=False)
 
     with patch("upscaler_cli.auth.oauth.httpx.AsyncClient", return_value=mock_client):
-        with pytest.raises(RuntimeError, match=r"client registration at https://\S+/register returned 500"):
+        with pytest.raises(
+            RuntimeError, match=r"client registration at https://\S+/register returned 500"
+        ):
             await flow.register_client()

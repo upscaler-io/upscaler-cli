@@ -100,4 +100,3 @@ class TestEntryUpdateEmbed:
         error = json.loads(result.stderr)
         assert "Markdown text fields: Note" in error["error"]
         assert all(c[1] != "/api/v1/files/presign" for c in client.calls)
-
