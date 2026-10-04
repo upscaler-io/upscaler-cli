@@ -274,9 +274,13 @@ class OAuthFlow:
 
         async with httpx.AsyncClient(timeout=30.0, verify=self.verify_ssl) as client:
             response = await client.post(url, json=payload)
-            response.raise_for_status()
-            data = response.json()
 
+        if response.status_code >= 300:
+            raise RuntimeError(
+                f"Login failed: client registration at {url} returned "
+                f"{response.status_code}. The server may be down or misconfigured."
+            )
+        data = response.json()
         return data["client_id"], data["client_secret"]
 
     async def login(self, port: int = DEFAULT_PORT) -> TokenData:

@@ -19,6 +19,7 @@ import mimetypes
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
+from urllib.parse import quote
 
 import httpx
 
@@ -96,6 +97,7 @@ async def presign_and_upload(
     content_type: Optional[str],
     file_bytes: bytes,
     asset_id: Optional[str] = None,
+    ref_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Presign and POST one file to S3.
 
@@ -108,6 +110,9 @@ async def presign_and_upload(
         asset_id: Target asset id. Required by the REST endpoint so the backend
             can run the per-asset write-permission check. Kept Optional here
             for unit tests that don't need an asset.
+        ref_id: Owner of the upload when it is not the asset itself (record
+            task id, todo id). The key lives under ``<ref_id>/`` so the
+            owner's saves keep the file.
 
     Returns:
         Dict shaped like ``FILE_ITEM_PERSIST_FIELDS``.
@@ -123,6 +128,8 @@ async def presign_and_upload(
     }
     if asset_id:
         presign_body["asset_id"] = asset_id
+    if ref_id:
+        presign_body["ref_id"] = ref_id
     try:
         envelope = await client.request(
             "POST",
@@ -170,6 +177,25 @@ async def presign_and_upload(
         )
 
     return _make_file_item(uid, file_name, resolved_type, len(file_bytes))
+
+
+# Characters `encodeURIComponent` leaves unescaped, minus `(` and `)`.
+_FILE_REF_NAME_SAFE = "-_.!~*'"
+
+
+def build_file_ref(uid: str, file_name: str) -> str:
+    """Markdown file reference for an owner-scoped upload (``<owner>/<nanoid>``).
+
+    Same output as ``buildFileRef`` in the monorepo's
+    ``packages/shared/src/utils/fileRef.js``.
+    """
+    return f"upscaler-file://{uid}/{quote(file_name, safe=_FILE_REF_NAME_SAFE)}"
+
+
+def build_file_markdown(uid: str, file_name: str, content_type: str) -> str:
+    """``![name](ref)`` for an image, ``[name](ref)`` for any other file."""
+    bang = "!" if content_type.startswith("image/") else ""
+    return f"{bang}[{file_name}]({build_file_ref(uid, file_name)})"
 
 
 def _is_file_node(node: Any) -> bool:

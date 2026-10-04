@@ -171,3 +171,60 @@ class TestFilesPresign:
 
         assert result.exit_code != 0
         assert "--asset-id" in result.output
+
+
+class TestFilesUpload:
+    def _invoke(self, runner, tmp_path, name, extra=(), json_mode=False):
+        path = tmp_path / name
+        path.write_bytes(b"bytes")
+        envelope = {
+            "success": True,
+            "data": {"uid": "t_456/abc", "url": "https://s3.example", "fields": {}},
+        }
+        s3 = AsyncMock()
+        s3.post = AsyncMock(return_value=type("R", (), {"status_code": 204, "text": ""})())
+        with (
+            patch("upscaler_cli.config.CLIConfig") as MC,
+            patch("upscaler_cli.auth.token_store.TokenStore"),
+            patch("upscaler_cli.client.UpscalerClient") as MockClient,
+            patch("upscaler_cli.uploads.httpx.AsyncClient") as MockHttpx,
+        ):
+            MC.return_value.resolve_server_url.return_value = "https://api.example.com"
+            MockClient.return_value.request = AsyncMock(return_value=envelope)
+            MockHttpx.return_value.__aenter__.return_value = s3
+            args = (["--json"] if json_mode else []) + [
+                "files",
+                "upload",
+                "--file",
+                str(path),
+                "--asset-id",
+                "r_123",
+                *extra,
+            ]
+            result = runner.invoke(cli, args)
+            return result, MockClient.return_value.request.call_args
+
+    def test_image_prints_embed_markdown_and_forwards_ref_id(self, runner, tmp_path):
+        result, call = self._invoke(
+            runner, tmp_path, "My shot (1).png", ["--ref-id", "t_456"]
+        )
+
+        assert result.exit_code == 0, result.output
+        assert result.output.strip() == (
+            "![My shot (1).png](upscaler-file://t_456/abc/My%20shot%20%281%29.png)"
+        )
+        assert call.kwargs["json"] == {
+            "file_name": "My shot (1).png",
+            "content_type": "image/png",
+            "asset_id": "r_123",
+            "ref_id": "t_456",
+        }
+
+    def test_other_file_prints_link_and_json_carries_reference(self, runner, tmp_path):
+        result, call = self._invoke(runner, tmp_path, "report.pdf", json_mode=True)
+
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)["data"]
+        assert data["reference"] == "upscaler-file://t_456/abc/report.pdf"
+        assert data["markdown"] == "[report.pdf](upscaler-file://t_456/abc/report.pdf)"
+        assert "ref_id" not in call.kwargs["json"]

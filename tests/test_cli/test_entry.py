@@ -515,3 +515,17 @@ class TestEntryApiError:
                 ],
             )
             assert result.exit_code != 0
+
+
+def test_create_input_error_is_json_in_json_mode():
+    from tests.test_cli.test_entry_upload import _make_ctx
+    from upscaler_cli.cli.entry import entry_group
+
+    result = CliRunner().invoke(
+        entry_group,
+        ["create", "--definition-id", "rg_1", "--data", '{"ff_title": "x"}'],
+        obj=_make_ctx(json_mode=True),
+    )
+
+    assert result.exit_code == 1
+    assert "Wrap them in a `values` object" in json.loads(result.stderr)["error"]

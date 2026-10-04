@@ -221,6 +221,40 @@ class TestEntryUpdateHappyPaths:
         assert body["data"]["expectedVersion"] == "3"
         assert body["data"]["values"]["ff_a"][0]["uid"] == "u_x"
 
+    def test_existing_files_survive_when_server_wraps_overview_in_json(
+        self,
+        mock_make_client,
+        mock_httpx_factory,
+        runner,
+        fake_client,
+        tmp_file,
+    ):
+        # get_asset answers {"data": {"json": {...}}} since up-ai 513fa5dfa.
+        # Reading `data.values` there found nothing and replaced the field's
+        # files with the new upload alone.
+        _setup_s3_ok(mock_httpx_factory)
+        mock_make_client.return_value = fake_client
+        existing = {"uid": "u_old", "name": "old.pdf", "type": "application/pdf"}
+
+        fake_client.expect("GET", "/api/v1/assets/i_test/schema", _evidence_schema())
+        fake_client.expect(
+            "GET",
+            "/api/v1/assets/i_test",
+            {"success": True, "data": {"json": {"id": "i_test", "values": {"ff_a": [existing]}}}},
+        )
+        fake_client.expect("POST", "/api/v1/files/presign", _presign_envelope("u_x"))
+        fake_client.expect("POST", "/api/v1/entries", _entries_success())
+
+        result = runner.invoke(
+            entry_group,
+            ["update", "--entry-id", "i_test", "--file", f"ff_a={tmp_file}"],
+            obj=_make_ctx(),
+        )
+
+        assert result.exit_code == 0, result.output
+        body = next(c for c in fake_client.calls if c[1] == "/api/v1/entries")[2]["json"]
+        assert [f["uid"] for f in body["data"]["values"]["ff_a"]] == ["u_old", "u_x"]
+
     def test_title_resolution_case_insensitive_trimmed(
         self,
         mock_make_client,

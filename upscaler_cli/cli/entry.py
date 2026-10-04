@@ -8,6 +8,7 @@ import click
 
 from upscaler_cli.cli.context import pass_context
 from upscaler_cli.cli.helpers import handle_error, raise_on_envelope_error
+from upscaler_cli.errors import CLIError
 
 # Cross-package contract emitted by the backend's form-upload block at
 # `packages/backend/src/shared/service/asset/blocks/form-upload.js`.
@@ -62,8 +63,7 @@ def entry_create(ctx, definition_id, data_input, note, dry_run):
     try:
         data = validate_entry_data(parse_data(data_input))
     except Exception as e:
-        click.echo(str(e), err=True)
-        sys.exit(1)
+        handle_error(ctx, e)
         return
 
     _execute_entry(
@@ -92,6 +92,16 @@ def entry_create(ctx, definition_id, data_input, note, dry_run):
     ),
 )
 @click.option(
+    "--embed",
+    "embed_pairs",
+    multiple=True,
+    help=(
+        "FIELD=PATH. Upload PATH and append it to markdown text field FIELD "
+        "(label or ff_* key) as ![name](upscaler-file://...) for an image or "
+        "[name](upscaler-file://...) otherwise. Repeatable."
+    ),
+)
+@click.option(
     "--task-id",
     default=None,
     help=(
@@ -116,7 +126,9 @@ def entry_create(ctx, definition_id, data_input, note, dry_run):
 )
 @click.option("--dry-run", is_flag=True, help="Preview without uploading or updating.")
 @pass_context
-def entry_update(ctx, entry_id, data_input, file_pairs, task_id, content_types, note, dry_run):
+def entry_update(
+    ctx, entry_id, data_input, file_pairs, embed_pairs, task_id, content_types, note, dry_run
+):
     """Update an existing entry, optionally uploading files.
 
     Updates land as pending revisions for human review; the
@@ -130,16 +142,17 @@ def entry_update(ctx, entry_id, data_input, file_pairs, task_id, content_types, 
         try:
             data = validate_entry_data(parse_data(data_input))
         except Exception as e:
-            click.echo(str(e), err=True)
-            sys.exit(1)
+            handle_error(ctx, e)
             return
 
-    if not file_pairs and not data_input:
-        click.echo("Either --data or --file is required.", err=True)
+    if not file_pairs and not embed_pairs and not data_input:
+        click.echo("Either --data, --file or --embed is required.", err=True)
         sys.exit(1)
         return
 
     files = _parse_file_pairs(file_pairs, content_types) if file_pairs else []
+    if embed_pairs:
+        data = _embed_files(ctx, entry_id, task_id, data, embed_pairs, dry_run)
 
     _execute_entry(
         ctx,
@@ -206,6 +219,83 @@ def entry_upload_file(ctx, entry_id, field_name, file_path, task_id, content_typ
     )
 
 
+def _embed_files(ctx, entry_id, task_id, data, embed_pairs, dry_run):
+    """Upload each --embed file and append its markdown to the field's text.
+
+    Returns ``data`` with ``values[ff_*]`` set to the field's current text
+    (from --data when given, else the stored value) plus the new references.
+    A record's text areas belong to a task, which owns the upload (ref_id).
+    """
+    from upscaler_cli.cli.helpers import make_client
+    from upscaler_cli.uploads import _guess_content_type, build_file_markdown, presign_and_upload
+
+    if _is_record_id(entry_id) and not task_id:
+        handle_error(
+            ctx, CLIError("Record --embed requires --task-id (records hold fields on tasks).")
+        )
+    client = make_client(ctx)
+    schema_fields = _fetch_schema_or_die(ctx, client, entry_id, task_id=task_id)
+    data = dict(data or {})
+    values = dict(data.get("values") or {})
+    stored = None
+    for pair in embed_pairs:
+        field_name, sep, raw_path = pair.partition("=")
+        path = Path(raw_path).expanduser()
+        if not sep or not field_name or not raw_path:
+            handle_error(ctx, CLIError(f"--embed expects FIELD=PATH, got: {pair}"))
+        if not path.is_file():
+            handle_error(ctx, CLIError(f"--embed file not found: {raw_path}"))
+        field = next(
+            (
+                f
+                for f in schema_fields
+                if f.get("key") == field_name
+                or (f.get("label") or "").strip().lower() == field_name.strip().lower()
+            ),
+            None,
+        )
+        if not field or field.get("type") != "textarea" or field.get("format") != "markdown":
+            markdown_fields = [
+                f.get("label") or f.get("key")
+                for f in schema_fields
+                if f.get("type") == "textarea" and f.get("format") == "markdown"
+            ]
+            handle_error(
+                ctx,
+                CLIError(
+                    f'"{field_name}" is not a markdown text field. Markdown text fields: '
+                    f"{', '.join(markdown_fields) or '(none)'}."
+                ),
+            )
+        key = field["key"]
+        if key not in values:
+            if stored is None:
+                stored, _ = _fetch_entry_values(ctx, client, entry_id, task_id=task_id)
+            values[key] = stored.get(key) or ""
+        if dry_run:
+            guessed = _guess_content_type(path.name, None)
+            markdown = build_file_markdown("<uploaded-on-run>", path.name, guessed)
+        else:
+            try:
+                item = asyncio.run(
+                    presign_and_upload(
+                        client,
+                        file_name=path.name,
+                        content_type=None,
+                        file_bytes=path.read_bytes(),
+                        asset_id=entry_id,
+                        ref_id=task_id if _is_record_id(entry_id) else None,
+                    )
+                )
+            except Exception as e:
+                handle_error(ctx, e)
+            markdown = build_file_markdown(item["uid"], item["name"], item["type"])
+        text = values[key] if isinstance(values[key], str) else ""
+        values[key] = f"{text.rstrip()}\n\n{markdown}" if text.strip() else markdown
+    data["values"] = values
+    return data
+
+
 def _parse_file_pairs(file_pairs, content_types):
     """Parse repeated --file FIELD=PATH pairs into upload descriptors.
 
@@ -261,8 +351,7 @@ def entry_save_draft(ctx, entry_id, task_id, note, data_input, dry_run):
         try:
             data = validate_entry_data(parse_data(data_input))
         except Exception as e:
-            click.echo(str(e), err=True)
-            sys.exit(1)
+            handle_error(ctx, e)
             return
 
     _execute_entry(
@@ -824,6 +913,9 @@ def _fetch_entry_values(ctx, client, entry_id, task_id=None):
         sys.exit(1)
     raise_on_envelope_error(ctx, entry)
     asset = (entry or {}).get("data") or {}
+    # Servers since up-ai 513fa5dfa wrap every asset's overview in `json`.
+    if isinstance(asset, dict) and isinstance(asset.get("json"), dict):
+        asset = asset["json"]
     values = asset.get("values") if isinstance(asset, dict) else None
     if values is None:
         values = {}
