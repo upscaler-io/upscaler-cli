@@ -4,6 +4,8 @@ Exposes ``upscaler files presign --file-name X --content-type Y`` as an
 escape hatch for scripts that drive the S3 upload themselves. The default
 file-upload path goes through ``upscaler entry update --file FIELD=PATH``,
 which composes presign + multipart upload + values mutation.
+``upscaler files upload`` uploads one file and prints the markdown reference
+to embed it in a text area.
 """
 
 import asyncio
@@ -29,6 +31,7 @@ def files_group():
 
     Examples:
         upscaler files presign --file-name report.pdf --content-type application/pdf
+        upscaler files upload --file ./shot.png --asset-id r_123 --ref-id t_456
         upscaler files download --key <key> --name report.pdf --output ./report.pdf
         upscaler files sign-get --key <key> --name report.pdf
     """
@@ -75,8 +78,16 @@ def _resolve_download_url(ctx, key, name, bucket):
         "presigned POST policy."
     ),
 )
+@click.option(
+    "--ref-id",
+    default=None,
+    help=(
+        "Owner of the upload when it is not the asset itself: the record task "
+        "id or the todo id. The key lives under this prefix."
+    ),
+)
 @pass_context
-def files_presign(ctx, file_name, content_type, asset_id):
+def files_presign(ctx, file_name, content_type, asset_id, ref_id):
     """Presign an S3 multipart POST envelope for one file.
 
     Prints the raw {uid, url, fields, bucket, expires_in} envelope as JSON.
@@ -85,18 +96,15 @@ def files_presign(ctx, file_name, content_type, asset_id):
     `mergeItemValues` write referencing the returned uid.
     """
     client = make_client(ctx)
+    body = {
+        "file_name": file_name,
+        "content_type": content_type,
+        "asset_id": asset_id,
+    }
+    if ref_id:
+        body["ref_id"] = ref_id
     try:
-        result = asyncio.run(
-            client.request(
-                "POST",
-                "/api/v1/files/presign",
-                json={
-                    "file_name": file_name,
-                    "content_type": content_type,
-                    "asset_id": asset_id,
-                },
-            )
-        )
+        result = asyncio.run(client.request("POST", "/api/v1/files/presign", json=body))
     except Exception as e:
         handle_error(ctx, e)
         return
@@ -109,6 +117,63 @@ def files_presign(ctx, file_name, content_type, asset_id):
 
     if not result.get("success"):
         sys.exit(1)
+
+
+@files_group.command("upload")
+@click.option(
+    "--file",
+    "file_path",
+    required=True,
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    help="Local file to upload.",
+)
+@click.option(
+    "--asset-id",
+    required=True,
+    help="Asset (entry/item/record) whose edit permission covers the upload.",
+)
+@click.option(
+    "--ref-id",
+    default=None,
+    help=(
+        "Owner of the text area when it is not the asset itself: the record "
+        "task id for a task's form, or the todo id for a todo description."
+    ),
+)
+@click.option("--content-type", default=None, help="MIME type. Guessed from the name if omitted.")
+@pass_context
+def files_upload(ctx, file_path, asset_id, ref_id, content_type):
+    """Upload one file for a markdown text area and print its reference.
+
+    Write the printed markdown (`![name](upscaler-file://...)` for an image,
+    `[name](upscaler-file://...)` otherwise) into the text area's value, then
+    save it (draft or complete). An upload still unreferenced is deleted by
+    the owner's next save more than 24 hours after the upload.
+    """
+    from upscaler_cli.uploads import build_file_markdown, build_file_ref, presign_and_upload
+
+    client = make_client(ctx)
+    try:
+        item = asyncio.run(
+            presign_and_upload(
+                client,
+                file_name=file_path.name,
+                content_type=content_type,
+                file_bytes=file_path.read_bytes(),
+                asset_id=asset_id,
+                ref_id=ref_id,
+            )
+        )
+    except Exception as e:
+        handle_error(ctx, e)
+        return
+
+    markdown = build_file_markdown(item["uid"], item["name"], item["type"])
+    if ctx.json_mode:
+        data = {**item, "reference": build_file_ref(item["uid"], item["name"]), "markdown": markdown}
+        click.echo(format_json({"success": True, "data": data}, compact=True))
+    else:
+        click.echo(markdown)
 
 
 @files_group.command("sign-get")

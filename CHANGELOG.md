@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- `entry update --embed FIELD=PATH` uploads a file and appends it to a
+  markdown text field as `![name](upscaler-file://...)` for an image or
+  `[name](upscaler-file://...)` otherwise. On a record, `--task-id` names the
+  task that owns the upload.
+- `files upload --file PATH --asset-id ID [--ref-id ID]` uploads one file and
+  prints that markdown reference; `files presign` accepts `--ref-id`. `--ref-id`
+  needs an up-ai release that accepts `ref_id` on `/api/v1/files/presign`.
+
 ### Fixed
 
 - **`entry update --file` and `entry upload-file` no longer drop a field's
