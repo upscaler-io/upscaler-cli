@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed
+
+- **`entry update --file` and `entry upload-file` no longer drop a field's
+  existing files.** Since up-ai answers `GET /api/v1/assets/{id}` with the
+  overview wrapped in `json`, the CLI read an entry's current values as empty,
+  so the upload replaced the field's files instead of appending to them (and
+  the version check was skipped). The CLI now reads both response shapes.
+- `upscaler login` reports a failed client registration or an unreachable
+  server as one error line instead of a Python traceback.
+- In `--json` mode, invalid `--data` for `entry create`, `entry update` and
+  `entry save-draft` is reported as a JSON error on stderr, like every other
+  error.
+
 ## [0.6.0] - 2026-10-01
 
 ### Security

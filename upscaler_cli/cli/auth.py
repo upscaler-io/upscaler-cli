@@ -6,6 +6,7 @@ import sys
 import time
 
 import click
+import httpx
 
 from upscaler_cli.cli.context import pass_context
 
@@ -139,7 +140,7 @@ def _login_browser(ctx, port):
         else:
             click.echo("Logged in successfully.", err=True)
 
-    except RuntimeError as e:
+    except (RuntimeError, httpx.HTTPError) as e:
         if ctx.json_mode:
             click.echo(json.dumps({"error": str(e)}), err=True)
         else:
@@ -166,7 +167,7 @@ def _login_device(ctx):
 
     try:
         pending = asyncio.run(flow.request_device_code())
-    except RuntimeError as e:
+    except (RuntimeError, httpx.HTTPError) as e:
         if ctx.json_mode:
             click.echo(json.dumps({"error": str(e)}), err=True)
         else:
@@ -244,7 +245,7 @@ def _login_check(ctx):
                 err=True,
             )
         sys.exit(1)
-    except RuntimeError as e:
+    except (RuntimeError, httpx.HTTPError) as e:
         _delete_pending_device(ctx.profile)
         if ctx.json_mode:
             click.echo(json.dumps({"error": str(e)}), err=True)
@@ -355,7 +356,7 @@ def refresh(ctx):
         else:
             click.echo(f"Token refreshed. Expires in {_format_duration(expires_in)}.")
 
-    except RuntimeError as e:
+    except (RuntimeError, httpx.HTTPError) as e:
         if ctx.json_mode:
             click.echo(json.dumps({"error": str(e), "exit_code": 2}), err=True)
         else:

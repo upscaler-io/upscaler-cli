@@ -366,3 +366,19 @@ async def test_check_device_code_expired():
     with patch("upscaler_cli.auth.oauth.httpx.AsyncClient", return_value=mock_client):
         with pytest.raises(RuntimeError, match="expired"):
             await flow.check_device_code("dev_abc")
+
+
+@pytest.mark.asyncio
+async def test_register_client_server_error_names_url_and_status():
+    flow = OAuthFlow("https://api.example.com")
+    mock_response = MagicMock()
+    mock_response.status_code = 500
+
+    mock_client = AsyncMock()
+    mock_client.post.return_value = mock_response
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+
+    with patch("upscaler_cli.auth.oauth.httpx.AsyncClient", return_value=mock_client):
+        with pytest.raises(RuntimeError, match=r"client registration at https://\S+/register returned 500"):
+            await flow.register_client()

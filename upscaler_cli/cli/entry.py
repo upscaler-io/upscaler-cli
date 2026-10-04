@@ -62,8 +62,7 @@ def entry_create(ctx, definition_id, data_input, note, dry_run):
     try:
         data = validate_entry_data(parse_data(data_input))
     except Exception as e:
-        click.echo(str(e), err=True)
-        sys.exit(1)
+        handle_error(ctx, e)
         return
 
     _execute_entry(
@@ -130,8 +129,7 @@ def entry_update(ctx, entry_id, data_input, file_pairs, task_id, content_types, 
         try:
             data = validate_entry_data(parse_data(data_input))
         except Exception as e:
-            click.echo(str(e), err=True)
-            sys.exit(1)
+            handle_error(ctx, e)
             return
 
     if not file_pairs and not data_input:
@@ -261,8 +259,7 @@ def entry_save_draft(ctx, entry_id, task_id, note, data_input, dry_run):
         try:
             data = validate_entry_data(parse_data(data_input))
         except Exception as e:
-            click.echo(str(e), err=True)
-            sys.exit(1)
+            handle_error(ctx, e)
             return
 
     _execute_entry(
@@ -824,6 +821,9 @@ def _fetch_entry_values(ctx, client, entry_id, task_id=None):
         sys.exit(1)
     raise_on_envelope_error(ctx, entry)
     asset = (entry or {}).get("data") or {}
+    # Servers since up-ai 513fa5dfa wrap every asset's overview in `json`.
+    if isinstance(asset, dict) and isinstance(asset.get("json"), dict):
+        asset = asset["json"]
     values = asset.get("values") if isinstance(asset, dict) else None
     if values is None:
         values = {}
