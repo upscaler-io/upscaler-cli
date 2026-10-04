@@ -96,6 +96,10 @@ upscaler comment add --asset-id to_abc123 --asset-type todo \
 upscaler files download --key <key> --name report.pdf --output ./report.pdf
 upscaler files sign-get --key <key> --name report.pdf
 
+# Embed an image or file in a markdown text field (--task-id for a record task)
+upscaler entry update --entry-id i_abc123 --embed "Note=./screenshot.png"
+upscaler files upload --file ./screenshot.png --asset-id i_abc123   # prints the markdown
+
 # Recover a soft-deleted asset (and find recovery targets)
 upscaler list deleted --search policy
 upscaler recover d_abc123 --dry-run
