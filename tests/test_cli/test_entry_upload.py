@@ -13,6 +13,7 @@ import pytest
 from click.testing import CliRunner
 
 from upscaler_cli.cli.entry import entry_group
+from upscaler_cli.security import validate_request_path
 
 # ---------------------------------------------------------------------------
 # Test doubles
@@ -34,6 +35,9 @@ class FakeUpscalerClient:
         self.script.append(((method, path_prefix), response))
 
     async def request(self, method, path, **kwargs):
+        # Same guard as UpscalerClient.request, so a path with a query
+        # string fails here as it does against the real client.
+        validate_request_path(path)
         self.calls.append((method, path, kwargs))
         for idx, ((m, p), resp) in enumerate(self.script):
             if m == method and path.startswith(p):
@@ -344,10 +348,9 @@ class TestEntryUpdateHappyPaths:
         _setup_s3_ok(mock_httpx_factory)
         mock_make_client.return_value = fake_client
 
-        # Record schema is fetched per-task (?taskId=), and the values to merge
-        # into come from the TASK, not the record (records hold no record-level
-        # values). The schema expectation matches by prefix so the ?taskId=
-        # query string is fine.
+        # Record schema is fetched per-task (taskId param), and the values to
+        # merge into come from the TASK, not the record (records hold no
+        # record-level values).
         fake_client.expect(
             "GET",
             "/api/v1/assets/r_789/schema",
@@ -381,9 +384,9 @@ class TestEntryUpdateHappyPaths:
         # Schema lookup must carry the task id so the backend resolves the
         # task's fields rather than (non-existent) record-level fields.
         schema_call = next(
-            c for c in fake_client.calls if c[1].startswith("/api/v1/assets/r_789/schema")
+            c for c in fake_client.calls if c[1] == "/api/v1/assets/r_789/schema"
         )
-        assert "taskId=t_321" in schema_call[1]
+        assert schema_call[2]["params"] == {"taskId": "t_321"}
         body = next(c for c in fake_client.calls if c[1] == "/api/v1/entries")[2]["json"]
         assert body["task_id"] == "t_321"
         assert "expectedVersion" not in body["data"]
@@ -1288,7 +1291,7 @@ class TestEntryUploadFile:
 
 
 class TestSchemaFetchTaskScoping:
-    """`?taskId=` must only be added for record ids, matching where the values
+    """The `taskId` param must only be added for record ids, matching where the values
     actually switch to the task source (`_fetch_entry_values`). Appending it
     for a non-record item diverges schema from values."""
 
@@ -1308,7 +1311,11 @@ class TestSchemaFetchTaskScoping:
         client = self._client()
         _fetch_schema_or_die(_make_ctx(), client, "r_789", task_id="t_321")
         path = client.request.call_args[0][1]
-        assert "taskId=t_321" in path
+        # The task id goes in params: the request-path guard in
+        # UpscalerClient.request rejects a path with a query string.
+        validate_request_path(path)
+        assert path == "/api/v1/assets/r_789/schema"
+        assert client.request.call_args.kwargs["params"] == {"taskId": "t_321"}
 
     def test_non_record_item_omits_task_id(self):
         from upscaler_cli.cli.entry import _fetch_schema_or_die
@@ -1316,7 +1323,8 @@ class TestSchemaFetchTaskScoping:
         client = self._client()
         _fetch_schema_or_die(_make_ctx(), client, "i_123", task_id="t_321")
         path = client.request.call_args[0][1]
-        assert "taskId" not in path
+        assert path == "/api/v1/assets/i_123/schema"
+        assert client.request.call_args.kwargs["params"] is None
 
 
 # ---------------------------------------------------------------------------
