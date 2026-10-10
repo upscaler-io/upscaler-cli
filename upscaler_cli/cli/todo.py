@@ -7,14 +7,32 @@ import click
 from upscaler_cli.cli.context import pass_context
 from upscaler_cli.cli.helpers import handle_error, raise_on_envelope_error
 
+TODO_PRIORITIES = ["URGENT", "HIGH", "MEDIUM", "LOW"]
+
+_priority_option = click.option(
+    "--priority",
+    type=click.Choice(TODO_PRIORITIES, case_sensitive=False),
+    default=None,
+    help="Priority: URGENT, HIGH, MEDIUM or LOW.",
+)
+
+_label_option = click.option(
+    "--label",
+    "labels",
+    multiple=True,
+    help="Org tag id to apply as a label; repeat for several.",
+)
+
 
 @click.group("todo")
 def todo_group():
-    """Manage todos: create, update, close, reopen, delete.
+    """Manage todos: create, update, close, reopen, delete, raise, clear-raise.
 
     Examples:
         upscaler todo create --title "Review doc" --assignee user123
         upscaler todo close abc123
+        upscaler todo raise abc123 --kind blocked --reason "Waiting on the supplier" --to g_proc
+        upscaler todo clear-raise abc123
         upscaler todo delete abc123 --dry-run
     """
     pass
@@ -31,9 +49,13 @@ def todo_group():
     default=None,
     help="In-app path the todo's View link points to, e.g. /document/d_123.",
 )
+@_priority_option
+@_label_option
 @click.option("--dry-run", is_flag=True, help="Preview without creating.")
 @pass_context
-def todo_create(ctx, title, description, assignee, due_date, bookmark_url, dry_run):
+def todo_create(
+    ctx, title, description, assignee, due_date, bookmark_url, priority, labels, dry_run
+):
     """Create a new todo."""
     data = {"title": title}
     if description:
@@ -44,6 +66,10 @@ def todo_create(ctx, title, description, assignee, due_date, bookmark_url, dry_r
         data["dueDateTime"] = due_date
     if bookmark_url:
         data["bookmarkUrl"] = bookmark_url
+    if priority:
+        data["priority"] = priority.upper()
+    if labels:
+        data["labels"] = list(labels)
 
     _execute_todo(ctx, "create", data=data, dry_run=dry_run)
 
@@ -54,9 +80,11 @@ def todo_create(ctx, title, description, assignee, due_date, bookmark_url, dry_r
 @click.option("--description", default=None, help="New description (markdown).")
 @click.option("--assignee", default=None, help="New assignee.")
 @click.option("--due", "due_date", default=None, help="New due date.")
+@_priority_option
+@_label_option
 @click.option("--dry-run", is_flag=True, help="Preview without updating.")
 @pass_context
-def todo_update(ctx, todo_id, title, description, assignee, due_date, dry_run):
+def todo_update(ctx, todo_id, title, description, assignee, due_date, priority, labels, dry_run):
     """Update an existing todo."""
     data = {}
     if title:
@@ -67,6 +95,10 @@ def todo_update(ctx, todo_id, title, description, assignee, due_date, dry_run):
         data["assignees"] = [assignee]
     if due_date:
         data["dueDateTime"] = due_date
+    if priority:
+        data["priority"] = priority.upper()
+    if labels:
+        data["labels"] = list(labels)
 
     _execute_todo(ctx, "update", todo_id=todo_id, data=data, dry_run=dry_run)
 
@@ -87,6 +119,55 @@ def todo_reopen(ctx, todo_id):
     _execute_todo(ctx, "reopen", todo_id=todo_id)
 
 
+@todo_group.command("raise")
+@click.argument("todo_id")
+@click.option(
+    "--kind",
+    type=click.Choice(["blocked", "escalated"], case_sensitive=False),
+    required=True,
+    help="blocked or escalated.",
+)
+@click.option("--reason", required=True, help="Why the todo needs attention.")
+@click.option(
+    "--to",
+    "targets",
+    multiple=True,
+    help="Group or member id to tell; repeat for several (at most 20).",
+)
+@pass_context
+def todo_raise(ctx, todo_id, kind, reason, targets):
+    """Raise a todo as blocked or escalated. Targets can read and comment on it."""
+    data = {"kind": kind.upper(), "reason": reason}
+    if targets:
+        data["targets"] = list(targets)
+    _execute_todo(ctx, "raise", todo_id=todo_id, data=data)
+
+
+@todo_group.command("clear-raise")
+@click.argument("todo_id")
+@pass_context
+def todo_clear_raise(ctx, todo_id):
+    """Clear a todo's raise (unblock, or clear the escalation)."""
+    _execute_todo(ctx, "clear_raise", todo_id=todo_id)
+
+
+@todo_group.command("block")
+@click.argument("todo_id")
+@click.option("--reason", required=True, help="Why the todo is stuck.")
+@pass_context
+def todo_block(ctx, todo_id, reason):
+    """Mark a todo blocked, with a reason. Deprecated: use `todo raise`."""
+    _execute_todo(ctx, "block", todo_id=todo_id, data={"reason": reason})
+
+
+@todo_group.command("unblock")
+@click.argument("todo_id")
+@pass_context
+def todo_unblock(ctx, todo_id):
+    """Clear a todo's blocked flag. Deprecated: use `todo clear-raise`."""
+    _execute_todo(ctx, "unblock", todo_id=todo_id)
+
+
 @todo_group.command("delete")
 @click.argument("todo_id")
 @click.option("--dry-run", is_flag=True, help="Preview without deleting.")
@@ -100,6 +181,15 @@ def todo_delete(ctx, todo_id, dry_run):
         return
 
     _execute_todo(ctx, "delete", todo_id=todo_id, dry_run=dry_run)
+
+
+# Past-tense labels where "<operation>d" does not read.
+_DONE = {
+    "block": "blocked",
+    "unblock": "unblocked",
+    "raise": "raised",
+    "clear_raise": "raise cleared",
+}
 
 
 def _execute_todo(ctx, operation, todo_id=None, data=None, dry_run=False):
@@ -135,4 +225,5 @@ def _execute_todo(ctx, operation, todo_id=None, data=None, dry_run=False):
         click.echo(format_json(result, compact=True))
     else:
         d = result.get("data", {})
-        click.echo(f"Todo {operation}d: {d.get('id', '')} — {d.get('title', '')}")
+        done = _DONE.get(operation, f"{operation}d")
+        click.echo(f"Todo {done}: {d.get('id', '')} — {d.get('title', '')}")
