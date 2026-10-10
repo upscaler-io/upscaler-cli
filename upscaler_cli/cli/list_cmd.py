@@ -306,11 +306,33 @@ def _resolve_select_values(raw_args, fields):
     return resolved
 
 
+def _parse_priorities(ctx, param, value):
+    """Parse `--priority URGENT,HIGH` into upper-case levels, rejecting unknown ones."""
+    from upscaler_cli.cli.todo import TODO_PRIORITIES
+
+    if not value:
+        return None
+    levels = [part.strip().upper() for part in value.split(",") if part.strip()]
+    unknown = [level for level in levels if level not in TODO_PRIORITIES]
+    if unknown:
+        raise click.BadParameter(
+            f"Unknown priority {', '.join(unknown)}. Valid values: {', '.join(TODO_PRIORITIES)}"
+        )
+    return levels
+
+
 @list_group.command("todos")
+@click.option(
+    "--priority",
+    "priorities",
+    default=None,
+    callback=_parse_priorities,
+    help="Only todos at these priorities, comma-separated (e.g. URGENT,HIGH).",
+)
 @pass_context
-def list_todos(ctx):
+def list_todos(ctx, priorities):
     """List your todos."""
-    _do_list(ctx, type_name="todos")
+    _do_list(ctx, type_name="todos", priorities=priorities)
 
 
 @list_group.command("members")
@@ -381,6 +403,7 @@ def _do_list(
     include_values=False,
     select_values=None,
     schema_fields=None,
+    priorities=None,
 ):
     """Shared list implementation."""
     from upscaler_cli.cli.helpers import make_client
@@ -415,6 +438,9 @@ def _do_list(
 
     raise_on_envelope_error(ctx, result)
 
+    if priorities:
+        _filter_todos_by_priority(result, priorities)
+
     if schema_fields:
         _rewrite_values_to_labels(result, schema_fields)
 
@@ -430,6 +456,23 @@ def _do_list(
         if type_name == "todos":
             data = _flatten_todo_bookmarks(data)
         click.echo(format_table(data))
+
+
+def _filter_todos_by_priority(result, priorities):
+    """Keep only todos at one of `priorities`, in place.
+
+    The list endpoint for todos honours only status and type, so the priority
+    filter runs here, on the page the server returned (A110 research R2).
+    """
+    data = result.get("data")
+    items = data.get("items", []) if isinstance(data, dict) else data or []
+    kept = [it for it in items if isinstance(it, dict) and it.get("priority") in priorities]
+    if isinstance(data, dict):
+        data["items"] = kept
+        if "total" in data:
+            data["total"] = len(kept)
+    else:
+        result["data"] = kept
 
 
 def _flatten_todo_bookmarks(items):
@@ -453,6 +496,8 @@ def _flatten_todo_bookmarks(items):
             flattened.append(it)
             continue
         row = {k: v for k, v in it.items() if k != "extra"}
+        # Always a priority column, blank when unset (A110 FR-010 AC6).
+        row["priority"] = it.get("priority") or ""
         if any_bookmark:
             row["bookmark"] = _bookmark(it)
         flattened.append(row)

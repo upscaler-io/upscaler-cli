@@ -285,3 +285,111 @@ class TestTodoApiError:
             )
             result = runner.invoke(cli, ["--json", "todo", "create", "--title", "Fail"])
             assert result.exit_code != 0
+
+
+class TestTodoPriority:
+    """A110 FR-010: priority on create and update."""
+
+    def _invoke(self, runner, args):
+        mock_result = {"success": True, "data": {"id": "todo_1", "title": "Test"}}
+        with patch("upscaler_cli.config.CLIConfig") as MC, \
+             patch("upscaler_cli.auth.token_store.TokenStore"), \
+             patch("upscaler_cli.client.UpscalerClient") as MockClient:
+            MC.return_value.resolve_server_url.return_value = "https://api.example.com"
+            MockClient.return_value.request = AsyncMock(return_value=mock_result)
+            result = runner.invoke(cli, args)
+            return result, MockClient.return_value.request
+
+    def test_create_sends_priority(self, runner):
+        result, request = self._invoke(
+            runner, ["todo", "create", "--title", "T", "--priority", "URGENT"]
+        )
+        assert result.exit_code == 0
+        assert request.call_args.kwargs["json"]["data"]["priority"] == "URGENT"
+
+    def test_update_sends_priority(self, runner):
+        result, request = self._invoke(
+            runner, ["todo", "update", "todo_1", "--priority", "high"]
+        )
+        assert result.exit_code == 0
+        assert request.call_args.kwargs["json"]["data"] == {"priority": "HIGH"}
+
+    def test_invalid_priority_rejected_before_any_request(self, runner):
+        result, request = self._invoke(
+            runner, ["todo", "create", "--title", "T", "--priority", "CRITICAL"]
+        )
+        assert result.exit_code != 0
+        assert "urgent" in result.output.lower() and "low" in result.output.lower()
+        request.assert_not_called()
+
+    def test_omitted_priority_sends_no_key(self, runner):
+        result, request = self._invoke(runner, ["todo", "create", "--title", "T"])
+        assert result.exit_code == 0
+        assert "priority" not in request.call_args.kwargs["json"]["data"]
+
+
+class TestTodoLabels:
+    """A110 FR-013 AC2: repeatable --label on create and update."""
+
+    def _invoke(self, runner, args):
+        mock_result = {"success": True, "data": {"id": "todo_1", "title": "Test"}}
+        with patch("upscaler_cli.config.CLIConfig") as MC, \
+             patch("upscaler_cli.auth.token_store.TokenStore"), \
+             patch("upscaler_cli.client.UpscalerClient") as MockClient:
+            MC.return_value.resolve_server_url.return_value = "https://api.example.com"
+            MockClient.return_value.request = AsyncMock(return_value=mock_result)
+            result = runner.invoke(cli, args)
+            return result, MockClient.return_value.request
+
+    def test_create_sends_every_label(self, runner):
+        result, request = self._invoke(
+            runner,
+            ["todo", "create", "--title", "T", "--label", "tg_a", "--label", "tg_b"],
+        )
+        assert result.exit_code == 0
+        assert request.call_args.kwargs["json"]["data"]["labels"] == ["tg_a", "tg_b"]
+
+    def test_update_sends_labels(self, runner):
+        result, request = self._invoke(runner, ["todo", "update", "todo_1", "--label", "tg_a"])
+        assert result.exit_code == 0
+        assert request.call_args.kwargs["json"]["data"] == {"labels": ["tg_a"]}
+
+    def test_omitted_label_sends_no_key(self, runner):
+        result, request = self._invoke(runner, ["todo", "create", "--title", "T"])
+        assert result.exit_code == 0
+        assert "labels" not in request.call_args.kwargs["json"]["data"]
+
+
+class TestTodoBlock:
+    """A110 FR-019 AC2: `todo block` and `todo unblock`."""
+
+    def _invoke(self, runner, args):
+        mock_result = {"success": True, "data": {"id": "todo_1", "title": "Test"}}
+        with patch("upscaler_cli.config.CLIConfig") as MC, \
+             patch("upscaler_cli.auth.token_store.TokenStore"), \
+             patch("upscaler_cli.client.UpscalerClient") as MockClient:
+            MC.return_value.resolve_server_url.return_value = "https://api.example.com"
+            MockClient.return_value.request = AsyncMock(return_value=mock_result)
+            result = runner.invoke(cli, args)
+            return result, MockClient.return_value.request
+
+    def test_block_sends_the_operation_and_reason(self, runner):
+        result, request = self._invoke(
+            runner, ["todo", "block", "todo_1", "--reason", "waiting on supplier"]
+        )
+        assert result.exit_code == 0
+        assert request.call_args.kwargs["json"] == {
+            "operation": "block",
+            "id": "todo_1",
+            "data": {"reason": "waiting on supplier"},
+        }
+
+    def test_block_requires_a_reason(self, runner):
+        result, request = self._invoke(runner, ["todo", "block", "todo_1"])
+        assert result.exit_code != 0
+        request.assert_not_called()
+
+    def test_unblock_sends_the_operation(self, runner):
+        result, request = self._invoke(runner, ["todo", "unblock", "todo_1"])
+        assert result.exit_code == 0
+        assert request.call_args.kwargs["json"] == {"operation": "unblock", "id": "todo_1"}

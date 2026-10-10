@@ -659,3 +659,59 @@ class TestListTodos:
             result = runner.invoke(cli, ["--json", "list", "todos"])
             assert result.exit_code != 0
             assert "Organization context required" in result.output
+
+
+class TestListTodosPriority:
+    """A110 FR-010 AC5-6: `list todos --priority` and the priority column."""
+
+    ITEMS = {
+        "success": True,
+        "data": {
+            "items": [
+                {"id": "to_1", "title": "Urgent one", "status": "OPEN", "priority": "URGENT"},
+                {"id": "to_2", "title": "High one", "status": "OPEN", "priority": "HIGH"},
+                {"id": "to_3", "title": "Plain one", "status": "OPEN", "priority": None},
+            ],
+            "total": 3,
+        },
+    }
+
+    def _invoke(self, runner, args, result_data=None):
+        with (
+            patch("upscaler_cli.config.CLIConfig") as MC,
+            patch("upscaler_cli.auth.token_store.TokenStore"),
+            patch("upscaler_cli.client.UpscalerClient") as MockClient,
+        ):
+            MC.return_value.resolve_server_url.return_value = "https://api.example.com"
+            MockClient.return_value.request = AsyncMock(
+                return_value=json.loads(json.dumps(result_data or self.ITEMS))
+            )
+            return runner.invoke(cli, args), MockClient.return_value.request
+
+    def test_filters_to_the_given_priorities(self, runner):
+        result, _ = self._invoke(runner, ["list", "todos", "--priority", "URGENT,high"])
+        assert result.exit_code == 0
+        assert "Urgent one" in result.output
+        assert "High one" in result.output
+        assert "Plain one" not in result.output
+
+    def test_filters_json_output_too(self, runner):
+        result, _ = self._invoke(runner, ["--json", "list", "todos", "--priority", "URGENT"])
+        assert result.exit_code == 0
+        items = json.loads(result.output)["data"]["items"]
+        assert [item["id"] for item in items] == ["to_1"]
+
+    def test_invalid_priority_rejected_before_any_request(self, runner):
+        result, request = self._invoke(runner, ["list", "todos", "--priority", "URGENT,BOGUS"])
+        assert result.exit_code != 0
+        assert "BOGUS" in result.output
+        request.assert_not_called()
+
+    def test_table_has_a_priority_column(self, runner):
+        rows = {
+            "success": True,
+            "data": {"items": [{"id": "to_9", "title": "Old server row", "status": "OPEN"}]},
+        }
+        result, _ = self._invoke(runner, ["list", "todos"], rows)
+        assert result.exit_code == 0
+        assert "priority" in result.output.lower()

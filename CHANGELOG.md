@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- `todo create` and `todo update` take `--priority URGENT|HIGH|MEDIUM|LOW` and
+  `--label TAG_ID` (repeatable) (A110).
+- `list todos --priority URGENT,HIGH` keeps only todos at those priorities, and
+  the todo table always has a priority column (A110).
+- `todo block ID --reason TEXT` and `todo unblock ID` (A110).
+
 ## [0.7.0] - 2026-10-04
 
 ### Added
