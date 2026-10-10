@@ -634,15 +634,17 @@ def _is_record_id(entry_id):
 
 def _fetch_schema_or_die(ctx, client, entry_id, task_id=None):
     path = f"/api/v1/assets/{entry_id}/schema"
+    params = None
     if task_id and _is_record_id(entry_id):
         # Records carry fields per-task; name the task so the backend returns
         # that task's field schema instead of a (non-existent) record schema.
         # Gate on record-ness to match `_fetch_entry_values`: items keep their
         # own values source even with a --task-id, so scoping the schema to a
-        # task there would diverge schema from values.
-        path += f"?taskId={task_id}"
+        # task there would diverge schema from values. Sent as params: the
+        # request-path guard rejects a path that carries a query string.
+        params = {"taskId": task_id}
     try:
-        resp = asyncio.run(client.request("GET", path))
+        resp = asyncio.run(client.request("GET", path, params=params))
     except Exception as e:
         handle_error(ctx, e)
         sys.exit(1)
