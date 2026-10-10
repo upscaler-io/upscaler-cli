@@ -393,3 +393,66 @@ class TestTodoBlock:
         result, request = self._invoke(runner, ["todo", "unblock", "todo_1"])
         assert result.exit_code == 0
         assert request.call_args.kwargs["json"] == {"operation": "unblock", "id": "todo_1"}
+
+
+class TestTodoRaise:
+    """A130 FR-011 AC3: `todo raise` and `todo clear-raise`."""
+
+    def _invoke(self, runner, args):
+        mock_result = {"success": True, "data": {"id": "todo_1", "title": "Test"}}
+        with patch("upscaler_cli.config.CLIConfig") as MC, \
+             patch("upscaler_cli.auth.token_store.TokenStore"), \
+             patch("upscaler_cli.client.UpscalerClient") as MockClient:
+            MC.return_value.resolve_server_url.return_value = "https://api.example.com"
+            MockClient.return_value.request = AsyncMock(return_value=mock_result)
+            result = runner.invoke(cli, args)
+            return result, MockClient.return_value.request
+
+    def test_raise_sends_the_kind_reason_and_targets(self, runner):
+        result, request = self._invoke(
+            runner,
+            [
+                "todo", "raise", "todo_1", "--kind", "blocked",
+                "--reason", "waiting on supplier", "--to", "g_proc", "--to", "m_ada",
+            ],
+        )
+        assert result.exit_code == 0
+        assert "Todo raised: todo_1" in result.output
+        assert request.call_args.kwargs["json"] == {
+            "operation": "raise",
+            "id": "todo_1",
+            "data": {
+                "kind": "BLOCKED",
+                "reason": "waiting on supplier",
+                "targets": ["g_proc", "m_ada"],
+            },
+        }
+
+    def test_raise_without_targets_sends_none(self, runner):
+        result, request = self._invoke(
+            runner, ["todo", "raise", "todo_1", "--kind", "Escalated", "--reason", "late"]
+        )
+        assert result.exit_code == 0
+        assert request.call_args.kwargs["json"]["data"] == {
+            "kind": "ESCALATED",
+            "reason": "late",
+        }
+
+    @pytest.mark.parametrize(
+        "args",
+        [
+            ["--kind", "blocked"],
+            ["--reason", "x"],
+            ["--kind", "stuck", "--reason", "x"],
+        ],
+    )
+    def test_raise_needs_a_valid_kind_and_a_reason(self, runner, args):
+        result, request = self._invoke(runner, ["todo", "raise", "todo_1", *args])
+        assert result.exit_code != 0
+        request.assert_not_called()
+
+    def test_clear_raise_sends_the_operation(self, runner):
+        result, request = self._invoke(runner, ["todo", "clear-raise", "todo_1"])
+        assert result.exit_code == 0
+        assert "Todo raise cleared: todo_1" in result.output
+        assert request.call_args.kwargs["json"] == {"operation": "clear_raise", "id": "todo_1"}

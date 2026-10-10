@@ -26,11 +26,13 @@ _label_option = click.option(
 
 @click.group("todo")
 def todo_group():
-    """Manage todos: create, update, close, reopen, delete, block, unblock.
+    """Manage todos: create, update, close, reopen, delete, raise, clear-raise.
 
     Examples:
         upscaler todo create --title "Review doc" --assignee user123
         upscaler todo close abc123
+        upscaler todo raise abc123 --kind blocked --reason "Waiting on the supplier" --to g_proc
+        upscaler todo clear-raise abc123
         upscaler todo delete abc123 --dry-run
     """
     pass
@@ -117,12 +119,44 @@ def todo_reopen(ctx, todo_id):
     _execute_todo(ctx, "reopen", todo_id=todo_id)
 
 
+@todo_group.command("raise")
+@click.argument("todo_id")
+@click.option(
+    "--kind",
+    type=click.Choice(["blocked", "escalated"], case_sensitive=False),
+    required=True,
+    help="blocked or escalated.",
+)
+@click.option("--reason", required=True, help="Why the todo needs attention.")
+@click.option(
+    "--to",
+    "targets",
+    multiple=True,
+    help="Group or member id to tell; repeat for several (at most 20).",
+)
+@pass_context
+def todo_raise(ctx, todo_id, kind, reason, targets):
+    """Raise a todo as blocked or escalated. Targets can read and comment on it."""
+    data = {"kind": kind.upper(), "reason": reason}
+    if targets:
+        data["targets"] = list(targets)
+    _execute_todo(ctx, "raise", todo_id=todo_id, data=data)
+
+
+@todo_group.command("clear-raise")
+@click.argument("todo_id")
+@pass_context
+def todo_clear_raise(ctx, todo_id):
+    """Clear a todo's raise (unblock, or clear the escalation)."""
+    _execute_todo(ctx, "clear_raise", todo_id=todo_id)
+
+
 @todo_group.command("block")
 @click.argument("todo_id")
 @click.option("--reason", required=True, help="Why the todo is stuck.")
 @pass_context
 def todo_block(ctx, todo_id, reason):
-    """Mark a todo blocked, with a reason."""
+    """Mark a todo blocked, with a reason. Deprecated: use `todo raise`."""
     _execute_todo(ctx, "block", todo_id=todo_id, data={"reason": reason})
 
 
@@ -130,7 +164,7 @@ def todo_block(ctx, todo_id, reason):
 @click.argument("todo_id")
 @pass_context
 def todo_unblock(ctx, todo_id):
-    """Clear a todo's blocked flag."""
+    """Clear a todo's blocked flag. Deprecated: use `todo clear-raise`."""
     _execute_todo(ctx, "unblock", todo_id=todo_id)
 
 
@@ -150,7 +184,12 @@ def todo_delete(ctx, todo_id, dry_run):
 
 
 # Past-tense labels where "<operation>d" does not read.
-_DONE = {"block": "blocked", "unblock": "unblocked"}
+_DONE = {
+    "block": "blocked",
+    "unblock": "unblocked",
+    "raise": "raised",
+    "clear_raise": "raise cleared",
+}
 
 
 def _execute_todo(ctx, operation, todo_id=None, data=None, dry_run=False):

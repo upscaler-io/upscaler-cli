@@ -13,6 +13,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - `list todos --priority URGENT,HIGH` keeps only todos at those priorities, and
   the todo table always has a priority column (A110).
 - `todo block ID --reason TEXT` and `todo unblock ID` (A110).
+- `todo raise ID --kind blocked|escalated --reason TEXT [--to ID ...]` raises a
+  todo as blocked or escalated, telling up to 20 groups or members, who can then
+  read and comment on it. `todo clear-raise ID` clears it. A raised todo is not
+  edited: clear it, then raise it again. Needs the up-ai release with the
+  `raise` and `clear_raise` operations (A130).
+
+### Deprecated
+
+- `todo block` and `todo unblock`: use `todo raise --kind blocked` and
+  `todo clear-raise`. Both keep working.
 
 ## [0.7.0] - 2026-10-04
 
