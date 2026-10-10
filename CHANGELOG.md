@@ -23,6 +23,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - `todo block` and `todo unblock`: use `todo raise --kind blocked` and
   `todo clear-raise`. Both keep working.
+### Fixed
+
+- `entry upload-file --task-id` and `entry update --file --task-id` on a
+  record failed with "Invalid id in request path: a query string or fragment
+  is not allowed". The task-scoped schema request now sends `taskId` as a
+  query parameter instead of inside the path, so it passes the request-path
+  guard added in 0.6.0.
 
 ## [0.7.0] - 2026-10-04
 
